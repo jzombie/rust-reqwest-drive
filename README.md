@@ -138,9 +138,9 @@ let (cache, throttle) = init_cache_with_throttle(&Path::new("cache_storage.bin")
 
 // Configured `reqwest` client with `SIMD R Drive`-powered cache
 let client = ClientBuilder::new(reqwest::Client::new())
-    // Initialize `cache` middleware
+    // Integrate `cache` middleware
     .with_arc(cache)
-    // Initialize `throttle` middleware
+    // Integrate `throttle` middleware
     .with_arc(throttle)
     .build();
 ```
