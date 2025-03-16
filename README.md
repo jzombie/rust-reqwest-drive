@@ -113,7 +113,7 @@ let cache_policy = CachePolicy {
 
 let cache = init_cache(&Path::new("cache_storage.bin"), cache_policy);
 
-// Configured `reqwest` client with `SIMD R Drive`-powered cache
+// Configure `reqwest` client with `SIMD R Drive`-powered cache
 let client = ClientBuilder::new(reqwest::Client::new())
     .with_arc(cache)
     .build();
@@ -136,7 +136,7 @@ let throttle_policy = ThrottlePolicy {
 // Creates two middleware agents
 let (cache, throttle) = init_cache_with_throttle(&Path::new("cache_storage.bin"), CachePolicy::default(), throttle_policy);
 
-// Configured `reqwest` client with `SIMD R Drive`-powered cache
+// Configure `reqwest` client with `SIMD R Drive`-powered cache and throttle/backoff support
 let client = ClientBuilder::new(reqwest::Client::new())
     // Integrate `cache` middleware
     .with_arc(cache)
