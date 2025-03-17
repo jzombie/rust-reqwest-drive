@@ -3,6 +3,7 @@ doc_comment::doctest!("../README.md");
 
 use std::path::Path;
 
+pub use reqwest;
 pub use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
 
 mod cache_middleware;
