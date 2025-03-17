@@ -38,6 +38,28 @@ pub struct ThrottlePolicy {
     pub max_retries: usize,
 }
 
+impl Default for ThrottlePolicy {
+    /// Provides a sensible default throttling policy.
+    ///
+    /// This default configuration is suitable for most API use cases and includes:
+    /// - A **base delay** of 500ms between requests.
+    /// - A **random jitter** of up to 250ms to avoid synchronization issues.
+    /// - A **maximum of 5 concurrent requests** to prevent excessive load.
+    /// - A **maximum of 3 retries** for failed requests.
+    ///
+    /// # Returns
+    ///
+    /// A `ThrottlePolicy` instance with preconfigured defaults.
+    fn default() -> Self {
+        Self {
+            base_delay_ms: 500,      // 500ms base delay between requests
+            adaptive_jitter_ms: 250, // Add up to 250ms random jitter
+            max_concurrent: 5,       // Allow up to 5 concurrent requests
+            max_retries: 3,          // Retry failed requests up to 3 times
+        }
+    }
+}
+
 /// Implements a throttling and exponential backoff middleware for HTTP requests.
 ///
 /// This middleware **limits request concurrency** and applies **adaptive delays**

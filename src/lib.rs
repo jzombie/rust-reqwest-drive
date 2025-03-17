@@ -3,6 +3,8 @@ doc_comment::doctest!("../README.md");
 
 use std::path::Path;
 
+use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
+
 mod cache_middleware;
 pub use cache_middleware::{CachePolicy, DriveCache};
 
@@ -104,4 +106,50 @@ pub fn init_cache_with_drive_and_throttle(
         Arc::clone(&cache),
     ));
     (cache, throttle)
+}
+
+/// Initializes a `ClientWithMiddleware` using both cache and throttle middleware.
+///
+/// This function sets up:
+/// - A `DriveCache` instance for response caching.
+/// - A `DriveThrottleBackoff` instance for request throttling and backoff.
+/// - A `reqwest` HTTP client wrapped with middleware for caching and throttling.
+///
+/// # Arguments
+///
+/// * `cache_storage_file` - Path to the file where cached responses are stored.
+/// * `cache_policy` - The cache expiration policy.
+/// * `throttle_policy` - The throttling and backoff policy.
+///
+/// # Returns
+///
+/// A `ClientWithMiddleware` instance, which is a `reqwest` HTTP client
+/// enhanced with caching and throttling.
+///
+/// # Example
+///
+/// ```
+/// use std::path::Path;
+/// use reqwest_drive::{init_client_with_cache_and_throttle, CachePolicy, ThrottlePolicy};
+///
+/// let client = init_client_with_cache_and_throttle(
+///     Path::new("http_storage_cache.bin"),
+///     CachePolicy::default(),
+///     ThrottlePolicy::default(),
+/// );
+/// ```
+///
+/// This client can now be used to make HTTP requests with automatic caching and rate limiting.
+pub fn init_client_with_cache_and_throttle(
+    cache_storage_file: &Path,
+    cache_policy: CachePolicy,
+    throttle_policy: ThrottlePolicy,
+) -> ClientWithMiddleware {
+    let (cache, throttle) =
+        init_cache_with_throttle(cache_storage_file, cache_policy, throttle_policy);
+
+    ClientBuilder::new(reqwest::Client::new())
+        .with_arc(cache)
+        .with_arc(throttle)
+        .build()
 }
