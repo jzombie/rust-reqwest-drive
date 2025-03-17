@@ -1,6 +1,6 @@
 [package]
 name = "reqwest-drive"
-version = "0.1.0-alpha.3"
+version = "0.1.0-alpha.4"
 authors = ["Jeremy Harris <jeremy.harris@zenosmosis.com>"]
 description = "High-performance caching, throttling, and backoff middleware for reqwest, with a single-file storage container."
 repository = "https://github.com/jzombie/rust-reqwest-drive"
@@ -19,11 +19,6 @@ reqwest-middleware = "0.4.1"
 serde = { version = "1.0.219", features = ["derive"] }
 simd-r-drive = "0.2.0-alpha.3"
 tokio = "1.44.1"
-
-[features]
-# Enables public re-export of `reqwest`, allowing users to access it directly 
-# through this library without adding it as a separate dependency.
-expose-reqwest = []
 
 [dev-dependencies]
 wiremock = "0.6.3"
