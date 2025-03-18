@@ -1284,7 +1284,7 @@ dependencies = [
 
 [[package]]
 name = "reqwest-drive"
-version = "0.1.0-alpha.4"
+version = "0.1.0-alpha.5"
 dependencies = [
  "async-trait",
  "bincode",
@@ -1485,9 +1485,9 @@ checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
 
 [[package]]
 name = "simd-r-drive"
-version = "0.2.0-alpha.3"
+version = "0.3.0-alpha"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a9e5ab89cdd91bc621335e2145ee407ca5c6f381aef545abaa2954cc73370451"
+checksum = "e29a4bfbeeb0c5685ee8b360811e36823e733c1bf63ba2a4627ae98ffff2e677"
 dependencies = [
  "clap",
  "crc32fast",
