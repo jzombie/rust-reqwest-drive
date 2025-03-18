@@ -1,6 +1,6 @@
 [package]
 name = "reqwest-drive"
-version = "0.1.0-alpha.4"
+version = "0.1.0-alpha.5"
 authors = ["Jeremy Harris <jeremy.harris@zenosmosis.com>"]
 description = "High-performance caching, throttling, and backoff middleware for reqwest, with a single-file storage container."
 repository = "https://github.com/jzombie/rust-reqwest-drive"
@@ -17,7 +17,7 @@ rand = "0.9.0"
 reqwest = "0.12.14"
 reqwest-middleware = "0.4.1"
 serde = { version = "1.0.219", features = ["derive"] }
-simd-r-drive = "0.2.0-alpha.3"
+simd-r-drive = "0.3.0-alpha"
 tokio = "1.44.1"
 
 [dev-dependencies]
