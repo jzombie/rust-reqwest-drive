@@ -93,6 +93,50 @@ async fn main() {
 }
 ```
 
+## Overriding Throttle Policy (Per Request)
+
+```rust
+use reqwest_drive::{init_cache_with_throttle, CachePolicy, ThrottlePolicy};
+use reqwest_middleware::ClientBuilder;
+use std::path::Path;
+use std::time::Duration;
+
+#[tokio::main]
+async fn main() {
+    let (cache, throttle) = init_cache_with_throttle(
+        Path::new("cache_storage.bin"),
+        CachePolicy::default(),
+        ThrottlePolicy {
+            base_delay_ms: 200,      // Default base delay
+            adaptive_jitter_ms: 100, // Default jitter
+            max_concurrent: 2,       // Default concurrency
+            max_retries: 3,          // Default retries
+        }
+    );
+
+    let client = ClientBuilder::new(reqwest::Client::new())
+        .with_arc(cache)
+        .with_arc(throttle)
+        .build();
+
+    // Define a custom throttle policy for this request
+    let custom_throttle_policy = ThrottlePolicy {
+        base_delay_ms: 50,      // Lower base delay for this request
+        adaptive_jitter_ms: 25, // Less jitter
+        max_concurrent: 1,      // Allow only 1 concurrent request
+        max_retries: 1,         // Only retry once
+    };
+
+    // Apply the custom throttle policy **only** for this request
+    let mut request = client.get("https://httpbin.org/status/429");
+    request.extensions().insert(custom_throttle_policy);
+    
+    let response = request.send().await.unwrap();
+
+    println!("Response status: {}", response.status());
+}
+```
+
 ## Configuration
 
 The middleware can be fine-tuned using the following options:
