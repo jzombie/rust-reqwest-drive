@@ -94,7 +94,7 @@ async fn main() {
 }
 ```
 
-### Init Client w/ Cache & Throttle
+### Initializing Client without `with_arc`
 
 Initializing a client with both caching and throttling, without manually attaching middleware via `.with_arc()`:
 
