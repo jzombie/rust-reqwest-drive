@@ -10,7 +10,7 @@ High-performance caching, throttling, and backoff middleware for [reqwest](https
 
 ## Overview
 
-`reqwest-drive` is a middleware for [`reqwest-middleware`](https://crates.io/crates/reqwest-middleware) that provides:
+`reqwest-drive` is a middleware based on [`reqwest-middleware`](https://crates.io/crates/reqwest-middleware) that provides:
 - **High-speed request caching** using [SIMD R Drive](https://crates.io/crates/simd-r-drive), a SIMD-optimized, single-file-container data store.
 - **Adaptive request throttling** with support for dynamic concurrency limits.
 - **Configurable backoff strategies** for handling rate-limiting and transient failures.
