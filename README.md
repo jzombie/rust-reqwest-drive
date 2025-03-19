@@ -37,7 +37,8 @@ cargo add reqwest-drive
 
 ## Usage
 
-Basic example with caching:
+### Basic example with caching:
+
 ```rust
 use reqwest_drive::{init_cache, CachePolicy};
 use reqwest_middleware::ClientBuilder;
@@ -61,7 +62,7 @@ async fn main() {
 }
 ```
 
-## Throttling & Backoff
+### Throttling & Backoff
 
 To enable request throttling and exponential backoff:
 ```rust
@@ -93,7 +94,7 @@ async fn main() {
 }
 ```
 
-## Overriding Throttle Policy (Per Request)
+### Overriding Throttle Policy (Per Request)
 
 To override the throttle policy for a single request:
 
@@ -139,11 +140,11 @@ async fn main() {
 }
 ```
 
-## Configuration
+### Configuration
 
 The middleware can be fine-tuned using the following options:
 
-### Cache Policy
+#### Cache Policy
 
 ```rust
 use std::path::Path;
@@ -165,7 +166,7 @@ let client = ClientBuilder::new(reqwest::Client::new())
     .build();
 ```
 
-### Throttle Policy
+#### Throttle Policy
 
 ```rust
 use std::path::Path;
