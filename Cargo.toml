@@ -1,6 +1,6 @@
 [package]
 name = "reqwest-drive"
-version = "0.1.0-alpha.6"
+version = "0.1.0-alpha.7"
 authors = ["Jeremy Harris <jeremy.harris@zenosmosis.com>"]
 description = "High-performance caching, throttling, and backoff middleware for reqwest, with a single-file storage container."
 repository = "https://github.com/jzombie/rust-reqwest-drive"
