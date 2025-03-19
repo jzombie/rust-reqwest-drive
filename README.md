@@ -236,7 +236,7 @@ let client = ClientBuilder::new(reqwest::Client::new())
 
 ✅ **Faster than traditional disk-based caches** (memory-mapped, single-file storage container with SIMD acceleration for queries).  
 ✅ **More efficient than in-memory caches** (persists data across runs without RAM overhead).  
-✅ **Backoff-aware throttling** prevents API bans.  
+✅ **Backoff-aware throttling** helps prevent API bans due to excessive requests.
 
 ## License
 `reqwest-drive` is licensed under Apache License, Version 2.0 [LICENSE](LICENSE).
