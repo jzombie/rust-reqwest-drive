@@ -1,12 +1,15 @@
-use simd_r_drive::DataStore;
-use reqwest_drive::{init_cache, init_cache_with_throttle, CachePolicy, ThrottlePolicy, init_cache_with_drive, init_cache_with_drive_and_throttle};
+use reqwest_drive::{
+    init_cache, init_cache_with_drive, init_cache_with_drive_and_throttle,
+    init_cache_with_throttle, CachePolicy, ThrottlePolicy,
+};
 use reqwest_middleware::ClientBuilder;
+use simd_r_drive::DataStore;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tempdir::TempDir;
+use tokio::sync::{mpsc, Barrier};
 use tokio::time::{sleep, Instant};
-use tokio::sync::{Barrier, mpsc};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 /// Test cache-only middleware
@@ -153,7 +156,7 @@ async fn test_cache_expiration() {
     let cache_policy = CachePolicy {
         default_ttl: Duration::from_secs(1), // 1-second expiration
         respect_headers: true,
-        cache_status_override: None
+        cache_status_override: None,
     };
 
     let cache = init_cache(&cache_path, cache_policy);
@@ -352,14 +355,14 @@ async fn test_init_cache_with_throttle() {
     let cache_policy = CachePolicy {
         default_ttl: Duration::from_secs(60), // 1-minute cache
         respect_headers: true,
-        cache_status_override: None
+        cache_status_override: None,
     };
 
     let throttle_policy = ThrottlePolicy {
-        base_delay_ms: 200,  // 200ms initial delay
+        base_delay_ms: 200,     // 200ms initial delay
         adaptive_jitter_ms: 50, // Small random jitter
-        max_concurrent: 1, // Only allow 1 request at a time
-        max_retries: 1, // Allow 1 retry
+        max_concurrent: 1,      // Only allow 1 request at a time
+        max_retries: 1,         // Allow 1 retry
     };
 
     let (cache, throttle) = init_cache_with_throttle(&cache_path, cache_policy, throttle_policy);
@@ -370,7 +373,7 @@ async fn test_init_cache_with_throttle() {
         .build();
 
     let url = mock_server.uri();
-    
+
     // First request - Should be delayed due to throttling
     let start_time_1 = std::time::Instant::now();
     let first_response = client.get(&url).send().await.unwrap();
@@ -378,7 +381,10 @@ async fn test_init_cache_with_throttle() {
     let elapsed_1 = start_time_1.elapsed();
 
     assert_eq!(first_body, "cached response");
-    assert!(elapsed_1 >= Duration::from_millis(200), "First request was too fast!");
+    assert!(
+        elapsed_1 >= Duration::from_millis(200),
+        "First request was too fast!"
+    );
 
     // Second request - Should be instant due to caching
     let start_time_2 = std::time::Instant::now();
@@ -474,7 +480,8 @@ async fn test_with_drive_arc_and_throttle() {
         max_retries: 0,          // No retries needed
     };
 
-    let (cache, throttle) = init_cache_with_drive_and_throttle(store.clone(), cache_policy, throttle_policy);
+    let (cache, throttle) =
+        init_cache_with_drive_and_throttle(store.clone(), cache_policy, throttle_policy);
 
     // Build a client with the cache and throttle middleware
     let client = ClientBuilder::new(reqwest::Client::new())
@@ -649,7 +656,7 @@ async fn test_concurrent_requests_without_cache() {
     };
 
     let throttle_policy = ThrottlePolicy {
-        base_delay_ms: 0,   // No artificial delay
+        base_delay_ms: 0, // No artificial delay
         adaptive_jitter_ms: 0,
         max_concurrent,
         max_retries: 0,
@@ -662,7 +669,7 @@ async fn test_concurrent_requests_without_cache() {
         .build();
 
     let barrier = Arc::new(Barrier::new(num_requests));
-    
+
     // Use an async channel instead of Mutex for timestamps
     let (tx, mut rx) = mpsc::channel(num_requests);
 
@@ -700,7 +707,11 @@ async fn test_concurrent_requests_without_cache() {
 
     // Ensure at least `max_concurrent` requests ran in parallel
     timestamps.sort();
-    let first_batch = timestamps.iter().take(max_concurrent).cloned().collect::<Vec<_>>();
+    let first_batch = timestamps
+        .iter()
+        .take(max_concurrent)
+        .cloned()
+        .collect::<Vec<_>>();
 
     assert!(
         first_batch.len() == max_concurrent,
@@ -812,4 +823,99 @@ async fn test_throttling_respects_max_concurrent() {
         "✅ Throttling enforced correctly! Max concurrent requests: {} (expected {}).",
         max_seen, max_concurrent
     );
+}
+
+#[tokio::test]
+async fn test_throttle_policy_override() {
+    let temp_dir = TempDir::new("throttle_override_test").unwrap();
+    let cache_path = temp_dir.path().join("cache_throttle_override.bin");
+
+    let mock_server = MockServer::start().await;
+
+    let error_template = ResponseTemplate::new(500); // Simulate server failure
+    let success_template = ResponseTemplate::new(200).set_body_string("eventual success");
+
+    let request_counter = Arc::new(AtomicUsize::new(0));
+    let counter_clone = request_counter.clone();
+
+    // Step 1: Fail once, then succeed
+    Mock::given(wiremock::matchers::method("GET"))
+        .respond_with(move |_: &wiremock::Request| {
+            let count = counter_clone.fetch_add(1, Ordering::SeqCst);
+            if count < 1 {
+                error_template.clone() // First request fails
+            } else {
+                success_template.clone() // Second request succeeds
+            }
+        })
+        .expect(2) // Expect exactly 2 requests (1 failure, 1 success)
+        .mount(&mock_server)
+        .await;
+
+    // Initialize Default Throttle Policy (Would normally allow 3 retries)
+    let cache_policy = CachePolicy::default();
+    let throttle_policy = ThrottlePolicy {
+        base_delay_ms: 100,     // 100ms initial backoff
+        adaptive_jitter_ms: 50, // Small random jitter
+        max_concurrent: 1,      // Only allow 1 request at a time
+        max_retries: 3,         // Default policy allows 3 retries
+    };
+
+    let (_, throttle) = init_cache_with_throttle(&cache_path, cache_policy, throttle_policy);
+
+    let client = ClientBuilder::new(reqwest::Client::new())
+        .with_arc(throttle.clone())
+        .build();
+
+    let url = format!("{}/test-throttle-override", mock_server.uri());
+    let start_time = std::time::Instant::now();
+
+    // Override Throttle Policy for this specific request (Max 1 retry)
+    let custom_throttle = ThrottlePolicy {
+        base_delay_ms: 100,     // Same base delay
+        adaptive_jitter_ms: 50, // Same jitter
+        max_concurrent: 1,      // Same concurrency
+        max_retries: 1,         // Overriding retries (only 1 allowed)
+    };
+
+    // Send request with the override
+    let mut request = client.get(&url);
+    request.extensions().insert(custom_throttle); // Correct way to set per-request extension
+    let response = request.send().await.unwrap();
+
+    let body = response.text().await.unwrap();
+    let elapsed = start_time.elapsed();
+
+    // Ensure the final request succeeded
+    assert_eq!(
+        body, "eventual success",
+        "Expected final response to be 'eventual success', but got {:?}",
+        body
+    );
+
+    // Verify only **2 requests were made** (1 failure + 1 retry)
+    assert_eq!(
+        request_counter.load(Ordering::SeqCst),
+        2,
+        "Expected exactly 2 requests (1 failure + 1 success), but got {}",
+        request_counter.load(Ordering::SeqCst)
+    );
+
+    // Expected minimum total delay: 1 retry (~200ms total with jitter)
+    let min_expected_delay = Duration::from_millis(150); // Slightly relaxed lower bound
+    let max_expected_delay = Duration::from_millis(400); // Allow for jitter
+
+    // Ensure total delay falls within expected range
+    assert!(
+        elapsed >= min_expected_delay,
+        "Backoff was too fast! Expected at least {:?}, but got {:?}",
+        min_expected_delay,
+        elapsed
+    );
+    if elapsed > max_expected_delay {
+        eprintln!(
+            "⚠️ Warning: Backoff took longer than expected. Expected at most {:?}, but got {:?}",
+            max_expected_delay, elapsed
+        );
+    }
 }
