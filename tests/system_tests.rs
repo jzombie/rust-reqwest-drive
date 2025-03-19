@@ -1,6 +1,6 @@
 use reqwest_drive::{
     init_cache, init_cache_with_drive, init_cache_with_drive_and_throttle,
-    init_cache_with_throttle, CachePolicy, ThrottlePolicy,
+    init_cache_with_throttle, init_client_with_cache_and_throttle, CachePolicy, ThrottlePolicy,
 };
 use reqwest_middleware::ClientBuilder;
 use simd_r_drive::DataStore;
@@ -918,4 +918,70 @@ async fn test_throttle_policy_override() {
             max_expected_delay, elapsed
         );
     }
+}
+
+#[tokio::test]
+async fn test_init_client_with_cache_and_throttle() {
+    let temp_dir = TempDir::new("client_cache_throttle_test").unwrap();
+    let cache_path = temp_dir.path().join("client_cache_throttle.bin");
+
+    let mock_server = MockServer::start().await;
+
+    let response_template = ResponseTemplate::new(200)
+        .set_body_string("test response")
+        .insert_header("Cache-Control", "max-age=60"); // 1-minute cache
+
+    Mock::given(wiremock::matchers::method("GET"))
+        .respond_with(response_template.clone())
+        .expect(1) // Only one request should reach the server
+        .mount(&mock_server)
+        .await;
+
+    let cache_policy = CachePolicy {
+        default_ttl: Duration::from_secs(60), // 1-minute cache
+        respect_headers: true,
+        cache_status_override: None,
+    };
+
+    let throttle_policy = ThrottlePolicy {
+        base_delay_ms: 200,     // 200ms initial delay
+        adaptive_jitter_ms: 50, // Small random jitter
+        max_concurrent: 1,      // Only allow 1 request at a time
+        max_retries: 1,         // Allow 1 retry
+    };
+
+    let (cache, throttle) = init_cache_with_throttle(&cache_path, cache_policy, throttle_policy);
+
+    let client = init_client_with_cache_and_throttle(cache.clone(), throttle.clone());
+
+    let url = mock_server.uri();
+
+    // First request - Should hit the server and get cached
+    let start_time_1 = std::time::Instant::now();
+    let first_response = client.get(&url).send().await.unwrap();
+    let first_body = first_response.text().await.unwrap();
+    let elapsed_1 = start_time_1.elapsed();
+
+    assert_eq!(first_body, "test response");
+    assert!(
+        elapsed_1 >= Duration::from_millis(200),
+        "First request was too fast!"
+    );
+
+    // Second request - Should be instant due to caching
+    let start_time_2 = std::time::Instant::now();
+    let second_response = client.get(&url).send().await.unwrap();
+    let second_body = second_response.text().await.unwrap();
+    let elapsed_2 = start_time_2.elapsed();
+
+    assert_eq!(second_body, "test response");
+    assert!(
+        elapsed_2 < Duration::from_millis(50),
+        "Second request was not instant despite caching!"
+    );
+
+    println!(
+        "Test passed! First request took {:?}, second request took {:?} (should be cached).",
+        elapsed_1, elapsed_2
+    );
 }
