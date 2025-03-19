@@ -10,7 +10,7 @@ High-performance caching, throttling, and backoff middleware for [reqwest](https
 
 ## Overview
 
-`reqwest-drive` is a middleware for [`reqwest-middleware`](https://crates.io/crates/reqwest-middleware) that provides:
+`reqwest-drive` is a middleware based on [`reqwest-middleware`](https://crates.io/crates/reqwest-middleware) that provides:
 - **High-speed request caching** using [SIMD R Drive](https://crates.io/crates/simd-r-drive), a SIMD-optimized, single-file-container data store.
 - **Adaptive request throttling** with support for dynamic concurrency limits.
 - **Configurable backoff strategies** for handling rate-limiting and transient failures.
@@ -37,7 +37,8 @@ cargo add reqwest-drive
 
 ## Usage
 
-Basic example with caching:
+### Basic example with caching:
+
 ```rust
 use reqwest_drive::{init_cache, CachePolicy};
 use reqwest_middleware::ClientBuilder;
@@ -61,7 +62,7 @@ async fn main() {
 }
 ```
 
-## Throttling & Backoff
+### Throttling & Backoff
 
 To enable request throttling and exponential backoff:
 ```rust
@@ -93,7 +94,47 @@ async fn main() {
 }
 ```
 
-## Overriding Throttle Policy (Per Request)
+### Initializing Client without `with_arc`
+
+Initializing a client with both caching and throttling, without manually attaching middleware via `.with_arc()`:
+
+```rust
+use reqwest_drive::{
+    init_cache_with_throttle, init_client_with_cache_and_throttle, CachePolicy, ThrottlePolicy,
+};
+use reqwest_middleware::ClientWithMiddleware;
+use std::path::Path;
+use std::sync::Arc;
+use std::time::Duration;
+
+#[tokio::main]
+async fn main() {
+    let cache_policy = CachePolicy {
+        default_ttl: Duration::from_secs(300), // Cache responses for 5 minutes
+        respect_headers: true,
+        cache_status_override: None,
+    };
+
+    let throttle_policy = ThrottlePolicy {
+        base_delay_ms: 100,     // 100ms delay before retrying
+        adaptive_jitter_ms: 50, // Add jitter to avoid request bursts
+        max_concurrent: 2,      // Allow 2 concurrent requests
+        max_retries: 2,         // Retry up to 2 times on failure
+    };
+
+    // Initialize cache and throttling middleware
+    let (cache, throttle) = init_cache_with_throttle(Path::new("cache_storage.bin"), cache_policy, throttle_policy);
+
+    // Initialize a client with cache and throttling middleware
+    let client: ClientWithMiddleware = init_client_with_cache_and_throttle(cache, throttle);
+
+    // Perform a request using the client
+    let response = client.get("https://httpbin.org/get").send().await.unwrap();
+    println!("Response status: {}", response.status());
+}
+```
+
+### Overriding Throttle Policy (Per Request)
 
 To override the throttle policy for a single request:
 
@@ -139,11 +180,11 @@ async fn main() {
 }
 ```
 
-## Configuration
+### Configuration
 
 The middleware can be fine-tuned using the following options:
 
-### Cache Policy
+#### Cache Policy
 
 ```rust
 use std::path::Path;
@@ -165,7 +206,7 @@ let client = ClientBuilder::new(reqwest::Client::new())
     .build();
 ```
 
-### Throttle Policy
+#### Throttle Policy
 
 ```rust
 use std::path::Path;
@@ -195,7 +236,7 @@ let client = ClientBuilder::new(reqwest::Client::new())
 
 ✅ **Faster than traditional disk-based caches** (memory-mapped, single-file storage container with SIMD acceleration for queries).  
 ✅ **More efficient than in-memory caches** (persists data across runs without RAM overhead).  
-✅ **Backoff-aware throttling** prevents API bans.  
+✅ **Backoff-aware throttling** helps prevent API bans due to excessive requests.
 
 ## License
 `reqwest-drive` is licensed under Apache License, Version 2.0 [LICENSE](LICENSE).
