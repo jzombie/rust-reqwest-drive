@@ -94,6 +94,46 @@ async fn main() {
 }
 ```
 
+### Init Client w/ Cache & Throttle
+
+Initializing a client with both caching and throttling, without manually attaching middleware via `.with_arc()`:
+
+```rust
+use reqwest_drive::{
+    init_cache_with_throttle, init_client_with_cache_and_throttle, CachePolicy, ThrottlePolicy,
+};
+use reqwest_middleware::ClientWithMiddleware;
+use std::path::Path;
+use std::sync::Arc;
+use std::time::Duration;
+
+#[tokio::main]
+async fn main() {
+    let cache_policy = CachePolicy {
+        default_ttl: Duration::from_secs(300), // Cache responses for 5 minutes
+        respect_headers: true,
+        cache_status_override: None,
+    };
+
+    let throttle_policy = ThrottlePolicy {
+        base_delay_ms: 100,     // 100ms delay before retrying
+        adaptive_jitter_ms: 50, // Add jitter to avoid request bursts
+        max_concurrent: 2,      // Allow 2 concurrent requests
+        max_retries: 2,         // Retry up to 2 times on failure
+    };
+
+    // Initialize cache and throttling middleware
+    let (cache, throttle) = init_cache_with_throttle(Path::new("cache_storage.bin"), cache_policy, throttle_policy);
+
+    // Initialize a client with cache and throttling middleware
+    let client: ClientWithMiddleware = init_client_with_cache_and_throttle(cache, throttle);
+
+    // Perform a request using the client
+    let response = client.get("https://httpbin.org/get").send().await.unwrap();
+    println!("Response status: {}", response.status());
+}
+```
+
 ### Overriding Throttle Policy (Per Request)
 
 To override the throttle policy for a single request:
