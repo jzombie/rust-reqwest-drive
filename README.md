@@ -95,6 +95,8 @@ async fn main() {
 
 ## Overriding Throttle Policy (Per Request)
 
+To override the throttle policy for a single request:
+
 ```rust
 use reqwest_drive::{init_cache_with_throttle, CachePolicy, ThrottlePolicy};
 use reqwest_middleware::ClientBuilder;
