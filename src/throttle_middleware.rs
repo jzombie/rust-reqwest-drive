@@ -144,6 +144,10 @@ impl Middleware for DriveThrottleBackoff {
 
         let cache_key = format!("{} {}", req.method(), &url);
 
+        // Use a custom throttle policy if provided, otherwise default to `self.policy`
+        let custom_policy = extensions.get::<ThrottlePolicy>().cloned();
+        let policy = custom_policy.unwrap_or_else(|| self.policy.clone()); // Use override if available
+
         if self.cache.is_cached(&req).await {
             eprintln!("Using cache for: {}", &cache_key);
 
@@ -154,10 +158,7 @@ impl Middleware for DriveThrottleBackoff {
 
         // Log if the permit is not immediately available
         if self.semaphore.available_permits() == 0 {
-            eprintln!(
-                "Waiting for permit... ({} in use)",
-                self.policy.max_concurrent
-            );
+            eprintln!("Waiting for permit... ({} in use)", policy.max_concurrent);
         }
 
         // Acquire the permit and log when granted
@@ -176,7 +177,7 @@ impl Middleware for DriveThrottleBackoff {
         // Hold the permit until this function completes
         let _permit_guard = permit;
 
-        sleep(Duration::from_millis(self.policy.base_delay_ms)).await;
+        sleep(Duration::from_millis(policy.base_delay_ms)).await;
 
         let mut attempt = 0;
 
@@ -186,29 +187,29 @@ impl Middleware for DriveThrottleBackoff {
 
             match result {
                 Ok(resp) if resp.status().is_success() => return Ok(resp),
-                result if attempt >= self.policy.max_retries => return result,
+                result if attempt >= policy.max_retries => return result,
                 _ => {
                     attempt += 1;
 
                     let backoff_duration = {
                         let mut rng = rand::rng();
                         Duration::from_millis(
-                            self.policy.base_delay_ms * 2u64.pow(attempt as u32)
-                                + rng.random_range(0..=self.policy.adaptive_jitter_ms),
+                            policy.base_delay_ms * 2u64.pow(attempt as u32)
+                                + rng.random_range(0..=policy.adaptive_jitter_ms),
                         )
                     };
 
                     eprintln!(
                         "Retry {}/{} for URL {} after {} ms",
                         attempt,
-                        self.policy.max_retries,
+                        policy.max_retries,
                         url,
                         backoff_duration.as_millis()
                     );
 
                     sleep(backoff_duration).await;
 
-                    if attempt >= self.policy.max_retries {
+                    if attempt >= policy.max_retries {
                         break;
                     }
                 }
