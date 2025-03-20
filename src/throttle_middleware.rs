@@ -144,10 +144,6 @@ impl Middleware for DriveThrottleBackoff {
 
         let cache_key = format!("{} {}", req.method(), &url);
 
-        // Use a custom throttle policy if provided, otherwise default to `self.policy`
-        let custom_policy = extensions.get::<ThrottlePolicy>().cloned();
-        let policy = custom_policy.unwrap_or_else(|| self.policy.clone()); // Use override if available
-
         if self.cache.is_cached(&req).await {
             eprintln!("Using cache for: {}", &cache_key);
 
@@ -155,6 +151,10 @@ impl Middleware for DriveThrottleBackoff {
         } else {
             eprintln!("No cache found for: {}", &cache_key);
         }
+
+        // Use a custom throttle policy if provided, otherwise default to `self.policy`
+        let custom_policy = extensions.get::<ThrottlePolicy>().cloned();
+        let policy = custom_policy.unwrap_or_else(|| self.policy.clone()); // Use override if available
 
         // Log if the permit is not immediately available
         if self.semaphore.available_permits() == 0 {
