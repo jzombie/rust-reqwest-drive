@@ -1,6 +1,6 @@
 # reqwest-drive
 
-**Work in Progress**
+**Work in Progress.**
 
 [![Crates.io](https://img.shields.io/crates/v/reqwest-drive.svg)](https://crates.io/crates/reqwest-drive)
 [![Docs.rs](https://docs.rs/reqwest-drive/badge.svg)](https://docs.rs/reqwest-drive)
