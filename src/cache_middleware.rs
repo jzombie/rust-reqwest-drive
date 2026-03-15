@@ -118,10 +118,7 @@ impl DriveCache {
     /// * `store` - A shared `Arc<DataStore>` instance.
     /// * `policy` - Cache expiration configuration.
     pub fn with_drive_arc(store: Arc<DataStore>, policy: CachePolicy) -> Self {
-        Self {
-            store,
-            policy,
-        }
+        Self { store, policy }
     }
 
     /// Checks whether a request is cached and still valid.
@@ -275,7 +272,7 @@ impl DriveCache {
 
 #[async_trait]
 impl Middleware for DriveCache {
-     /// Intercepts HTTP requests to apply caching behavior.
+    /// Intercepts HTTP requests to apply caching behavior.
     ///
     /// This method first checks if a valid cached response exists for the incoming request.
     /// - If a cached response is found and still valid, it is returned immediately.
@@ -324,9 +321,7 @@ impl Middleware for DriveCache {
             if !bypass_cache && self.is_cached(&req).await {
                 // let store = self.store.read().await;
                 if let Ok(Some(entry_handle)) = store.read(cache_key_bytes) {
-                    if let Ok(cached) =
-                        bitcode::decode::<CachedResponse>(entry_handle.as_slice())
-                    {
+                    if let Ok(cached) = bitcode::decode::<CachedResponse>(entry_handle.as_slice()) {
                         let mut headers = HeaderMap::new();
                         for (k, v) in cached.headers {
                             if let Ok(header_name) = k.parse::<http::HeaderName>() {
@@ -370,17 +365,16 @@ impl Middleware for DriveCache {
                         .collect(),
                     body, // Move the original body here
                     expiration_timestamp,
-                })
-                ;
-    
+                });
+
                 {
                     let store = self.store.as_ref();
-    
+
                     eprintln!("Writing cache with key: {}", cache_key);
                     store.write(cache_key_bytes, serialized.as_slice()).ok();
                 }
             }
-            
+
             return Ok(build_response(status, headers, Bytes::from(body_clone)));
         }
 

@@ -1,16 +1,16 @@
 use reqwest_drive::{
-    init_cache, init_cache_with_drive, init_cache_with_drive_and_throttle,
-    init_cache_with_throttle, init_client_with_cache_and_throttle, init_throttle, CacheBypass,
-    CachePolicy, ThrottlePolicy,
+    CacheBypass, CachePolicy, ThrottlePolicy, init_cache, init_cache_with_drive,
+    init_cache_with_drive_and_throttle, init_cache_with_throttle,
+    init_client_with_cache_and_throttle, init_throttle,
 };
 use reqwest_middleware::ClientBuilder;
 use simd_r_drive::DataStore;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 use tempdir::TempDir;
-use tokio::sync::{mpsc, Barrier};
-use tokio::time::{sleep, Instant};
+use tokio::sync::{Barrier, mpsc};
+use tokio::time::{Instant, sleep};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 /// Test cache-only middleware

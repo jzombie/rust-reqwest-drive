@@ -1,9 +1,9 @@
-use reqwest_drive::{init_cache_with_drive_and_throttle, CachePolicy, ThrottlePolicy};
+use reqwest_drive::{CachePolicy, ThrottlePolicy, init_cache_with_drive_and_throttle};
 use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
 use simd_r_drive::DataStore;
 use std::{sync::Arc, time::Duration};
-use tokio::time::Instant;
 use tempdir::TempDir;
+use tokio::time::Instant;
 
 #[tokio::main]
 async fn main() {
@@ -16,19 +16,20 @@ async fn main() {
     // Define cache and throttle policies
     let cache_policy = CachePolicy {
         default_ttl: Duration::from_secs(60), // Cache responses for 60s
-        respect_headers: true, // Use headers for TTL when available
-        cache_status_override: None
+        respect_headers: true,                // Use headers for TTL when available
+        cache_status_override: None,
     };
 
     let throttle_policy = ThrottlePolicy {
-        base_delay_ms: 100,  // 100ms initial delay
+        base_delay_ms: 100,     // 100ms initial delay
         adaptive_jitter_ms: 50, // Small randomness to prevent bursts
-        max_concurrent: 1, // Allow 1 request at a time
-        max_retries: 2, // Allow up to 2 retries (3 total attempts)
+        max_concurrent: 1,      // Allow 1 request at a time
+        max_retries: 2,         // Allow up to 2 retries (3 total attempts)
     };
 
     // Initialize middleware using an existing `DataStore`
-    let (cache, throttle) = init_cache_with_drive_and_throttle(store.clone(), cache_policy, throttle_policy);
+    let (cache, throttle) =
+        init_cache_with_drive_and_throttle(store.clone(), cache_policy, throttle_policy);
 
     // Build Reqwest Client with Middleware
     let client: ClientWithMiddleware = ClientBuilder::new(reqwest::Client::new())
@@ -59,10 +60,7 @@ async fn main() {
         println!("📜 Response Body: {}", body);
     }
 
-    println!(
-        "⏳ Total Time Taken (including throttling): {:?}",
-        elapsed
-    );
+    println!("⏳ Total Time Taken (including throttling): {:?}", elapsed);
 
     // Run the request again to test caching
     println!("🔄 Sending another request (should be cached)...");

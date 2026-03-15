@@ -1,4 +1,4 @@
-use crate::{cache_middleware::CacheBypass, DriveCache};
+use crate::{DriveCache, cache_middleware::CacheBypass};
 use async_trait::async_trait;
 use http::Extensions;
 use rand::RngExt;
@@ -6,7 +6,7 @@ use reqwest::{Request, Response};
 use reqwest_middleware::{Error, Middleware, Next};
 use std::sync::Arc;
 use tokio::sync::Semaphore;
-use tokio::time::{sleep, Duration};
+use tokio::time::{Duration, sleep};
 
 /// Defines the throttling and backoff behavior for handling HTTP requests.
 ///
@@ -167,13 +167,13 @@ impl Middleware for DriveThrottleBackoff {
 
         if !bypass_cache {
             if let Some(cache) = &self.cache {
-            if cache.is_cached(&req).await {
-                eprintln!("Using cache for: {}", &cache_key);
+                if cache.is_cached(&req).await {
+                    eprintln!("Using cache for: {}", &cache_key);
 
-                return next.run(req, extensions).await;
-            } else {
-                eprintln!("No cache found for: {}", &cache_key);
-            }
+                    return next.run(req, extensions).await;
+                } else {
+                    eprintln!("No cache found for: {}", &cache_key);
+                }
             }
         }
 

@@ -13,7 +13,7 @@ async fn main() {
     let cache_policy = CachePolicy {
         default_ttl: Duration::from_secs(60), // Cache responses for 60s
         respect_headers: true,                // Use headers for TTL when available
-        cache_status_override: None
+        cache_status_override: None,
     };
 
     // Configure Throttling & Backoff Settings
