@@ -208,6 +208,37 @@ async fn main() {
 }
 ```
 
+### Bypassing Cache for a Single Request
+
+When using cache + throttle together, you can bypass cache for an individual request while keeping the same middleware stack:
+
+```rust
+use reqwest_drive::{CacheBypass, CachePolicy, ThrottlePolicy, init_cache_with_throttle};
+use reqwest_middleware::ClientBuilder;
+use std::path::Path;
+
+#[tokio::main]
+async fn main() {
+    let (cache, throttle) = init_cache_with_throttle(
+        Path::new("cache_storage.bin"),
+        CachePolicy::default(),
+        ThrottlePolicy::default(),
+    );
+
+    let client = ClientBuilder::new(reqwest::Client::new())
+        .with_arc(cache)
+        .with_arc(throttle)
+        .build();
+
+    let mut request = client.get("https://httpbin.org/get");
+    request.extensions().insert(CacheBypass(true));
+
+    // This request skips cache read/write, but still uses throttle/backoff.
+    let response = request.send().await.unwrap();
+    println!("Response status: {}", response.status());
+}
+```
+
 ### Configuration
 
 The middleware can be fine-tuned using the following options:

@@ -1,7 +1,7 @@
 use reqwest_drive::{
     init_cache, init_cache_with_drive, init_cache_with_drive_and_throttle,
-    init_cache_with_throttle, init_client_with_cache_and_throttle, init_throttle, CachePolicy,
-    ThrottlePolicy,
+    init_cache_with_throttle, init_client_with_cache_and_throttle, init_throttle, CacheBypass,
+    CachePolicy, ThrottlePolicy,
 };
 use reqwest_middleware::ClientBuilder;
 use simd_r_drive::DataStore;
@@ -919,6 +919,68 @@ async fn test_throttle_policy_override() {
             max_expected_delay, elapsed
         );
     }
+}
+
+#[tokio::test]
+async fn test_per_request_cache_bypass_with_throttle_and_shared_store() {
+    let temp_dir = TempDir::new("cache_bypass_test").unwrap();
+    let cache_path = temp_dir.path().join("cache_bypass.bin");
+
+    let mock_server = MockServer::start().await;
+
+    let request_counter = Arc::new(AtomicUsize::new(0));
+    let counter_clone = Arc::clone(&request_counter);
+
+    Mock::given(wiremock::matchers::method("GET"))
+        .respond_with(move |_: &wiremock::Request| {
+            let count = counter_clone.fetch_add(1, Ordering::SeqCst);
+            ResponseTemplate::new(200)
+                .set_body_string(format!("server-response-{}", count))
+                .insert_header("Cache-Control", "max-age=60")
+        })
+        .expect(2)
+        .mount(&mock_server)
+        .await;
+
+    let cache_policy = CachePolicy::default();
+    let throttle_policy = ThrottlePolicy {
+        base_delay_ms: 100,
+        adaptive_jitter_ms: 0,
+        max_concurrent: 1,
+        max_retries: 0,
+    };
+
+    let (cache, throttle) = init_cache_with_throttle(&cache_path, cache_policy, throttle_policy);
+
+    let client = ClientBuilder::new(reqwest::Client::new())
+        .with_arc(cache)
+        .with_arc(throttle)
+        .build();
+
+    let url = format!("{}/cache-bypass", mock_server.uri());
+
+    let first = client.get(&url).send().await.unwrap().text().await.unwrap();
+    assert_eq!(first, "server-response-0");
+
+    let second = client.get(&url).send().await.unwrap().text().await.unwrap();
+    assert_eq!(second, "server-response-0");
+
+    let bypass_start = Instant::now();
+    let mut bypass_request = client.get(&url);
+    bypass_request.extensions().insert(CacheBypass(true));
+    let third = bypass_request.send().await.unwrap().text().await.unwrap();
+    let bypass_elapsed = bypass_start.elapsed();
+
+    assert_eq!(third, "server-response-1");
+    assert!(
+        bypass_elapsed >= Duration::from_millis(100),
+        "Bypassed request should still be throttled"
+    );
+
+    let fourth = client.get(&url).send().await.unwrap().text().await.unwrap();
+    assert_eq!(fourth, "server-response-0");
+
+    assert_eq!(request_counter.load(Ordering::SeqCst), 2);
 }
 
 #[tokio::test]

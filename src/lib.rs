@@ -6,7 +6,7 @@ use std::path::Path;
 pub use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
 
 mod cache_middleware;
-pub use cache_middleware::{CachePolicy, DriveCache};
+pub use cache_middleware::{CacheBypass, CachePolicy, DriveCache};
 
 mod throttle_middleware;
 pub use throttle_middleware::{DriveThrottleBackoff, ThrottlePolicy};

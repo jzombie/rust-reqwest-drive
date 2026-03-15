@@ -12,6 +12,42 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH}; // For parsing `Expires` headers
 
+/// Per-request control for bypassing cache behavior.
+///
+/// When set to `CacheBypass(true)` in request extensions, the cache middleware
+/// will skip both cache reads and cache writes for that request.
+///
+/// This is useful when you want a one-off fresh fetch while still reusing the
+/// same client, cache store, and throttle middleware stack.
+///
+/// # Example
+///
+/// ```rust
+/// use reqwest_drive::{CacheBypass, CachePolicy, ThrottlePolicy, init_cache_with_throttle};
+/// use reqwest_middleware::ClientBuilder;
+/// use std::path::Path;
+///
+/// # #[tokio::main]
+/// # async fn main() {
+/// let (cache, throttle) = init_cache_with_throttle(
+///     Path::new("cache_storage.bin"),
+///     CachePolicy::default(),
+///     ThrottlePolicy::default(),
+/// );
+///
+/// let client = ClientBuilder::new(reqwest::Client::new())
+///     .with_arc(cache)
+///     .with_arc(throttle)
+///     .build();
+///
+/// let mut request = client.get("https://example.com");
+/// request.extensions().insert(CacheBypass(true));
+/// let _ = request.send().await;
+/// # }
+/// ```
+#[derive(Clone, Copy, Debug, Default)]
+pub struct CacheBypass(pub bool);
+
 /// Defines the caching policy for storing and retrieving responses.
 #[derive(Clone, Debug)]
 pub struct CachePolicy {
@@ -271,6 +307,11 @@ impl Middleware for DriveCache {
         extensions: &mut Extensions,
         next: Next<'_>,
     ) -> Result<Response> {
+        let bypass_cache = extensions
+            .get::<CacheBypass>()
+            .map(|flag| flag.0)
+            .unwrap_or(false);
+
         let cache_key = self.generate_cache_key(&req);
 
         eprintln!("Handle cache key: {}", cache_key);
@@ -280,7 +321,7 @@ impl Middleware for DriveCache {
 
         if req.method() == "GET" || req.method() == "HEAD" {
             // Use is_cached() to determine if the cache should be used
-            if self.is_cached(&req).await {
+            if !bypass_cache && self.is_cached(&req).await {
                 // let store = self.store.read().await;
                 if let Ok(Some(entry_handle)) = store.read(cache_key_bytes) {
                     if let Ok(cached) =
@@ -320,7 +361,7 @@ impl Middleware for DriveCache {
                 None => status.is_success(), // Default: Cache only success responses (2xx)
             };
 
-            if should_cache {
+            if should_cache && !bypass_cache {
                 let serialized = bitcode::encode(&CachedResponse {
                     status: status.as_u16(),
                     headers: headers
