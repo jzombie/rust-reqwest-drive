@@ -108,6 +108,46 @@ pub fn init_cache_with_drive_and_throttle(
     (cache, throttle)
 }
 
+/// Initializes only the throttle middleware without any cache or data store.
+///
+/// This mode applies request throttling and retry/backoff logic only.
+/// No persistent storage is required.
+///
+/// # Arguments
+///
+/// * `throttle_policy` - The throttling and backoff policy.
+///
+/// # Returns
+///
+/// An `Arc<DriveThrottleBackoff>` instance for throttling requests.
+///
+/// # Example
+///
+/// ```no_run
+/// use reqwest_drive::{init_throttle, ThrottlePolicy};
+/// use reqwest_middleware::ClientBuilder;
+///
+/// #[tokio::main]
+/// async fn main() {
+///     let throttle = init_throttle(ThrottlePolicy {
+///         base_delay_ms: 200,
+///         adaptive_jitter_ms: 100,
+///         max_concurrent: 2,
+///         max_retries: 2,
+///     });
+///
+///     let client = ClientBuilder::new(reqwest::Client::new())
+///         .with_arc(throttle)
+///         .build();
+///
+///     let response = client.get("https://httpbin.org/get").send().await.unwrap();
+///     assert!(response.status().is_success());
+/// }
+/// ```
+pub fn init_throttle(throttle_policy: ThrottlePolicy) -> Arc<DriveThrottleBackoff> {
+    Arc::new(DriveThrottleBackoff::without_cache(throttle_policy))
+}
+
 /// Initializes a `reqwest` client with both cache and throttle middleware.
 ///
 /// This function constructs a `ClientWithMiddleware` by attaching:

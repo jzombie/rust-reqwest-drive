@@ -1,6 +1,7 @@
 use reqwest_drive::{
     init_cache, init_cache_with_drive, init_cache_with_drive_and_throttle,
-    init_cache_with_throttle, init_client_with_cache_and_throttle, CachePolicy, ThrottlePolicy,
+    init_cache_with_throttle, init_client_with_cache_and_throttle, init_throttle, CachePolicy,
+    ThrottlePolicy,
 };
 use reqwest_middleware::ClientBuilder;
 use simd_r_drive::DataStore;
@@ -983,5 +984,104 @@ async fn test_init_client_with_cache_and_throttle() {
     println!(
         "Test passed! First request took {:?}, second request took {:?} (should be cached).",
         elapsed_1, elapsed_2
+    );
+}
+
+#[tokio::test]
+async fn test_init_throttle_without_store_enforces_base_delay() {
+    let mock_server = MockServer::start().await;
+
+    let response_template = ResponseTemplate::new(200).set_body_string("throttle-only response");
+
+    Mock::given(wiremock::matchers::method("GET"))
+        .respond_with(response_template)
+        .expect(3)
+        .mount(&mock_server)
+        .await;
+
+    let throttle_policy = ThrottlePolicy {
+        base_delay_ms: 120,
+        adaptive_jitter_ms: 0,
+        max_concurrent: 1,
+        max_retries: 0,
+    };
+
+    let throttle = init_throttle(throttle_policy);
+
+    let client = ClientBuilder::new(reqwest::Client::new())
+        .with_arc(throttle)
+        .build();
+
+    let start = Instant::now();
+
+    for i in 0..3 {
+        let url = format!("{}/throttle-only-{}", mock_server.uri(), i);
+        let response = client.get(&url).send().await.unwrap();
+        assert_eq!(response.status(), 200);
+        assert_eq!(response.text().await.unwrap(), "throttle-only response");
+    }
+
+    let elapsed = start.elapsed();
+    let min_expected_delay = Duration::from_millis(360);
+
+    assert!(
+        elapsed >= min_expected_delay,
+        "Throttle-only mode was too fast. Expected at least {:?}, got {:?}",
+        min_expected_delay,
+        elapsed
+    );
+}
+
+#[tokio::test]
+async fn test_init_throttle_without_store_retries_then_succeeds() {
+    let mock_server = MockServer::start().await;
+
+    let error_template = ResponseTemplate::new(500);
+    let success_template = ResponseTemplate::new(200).set_body_string("eventual success");
+
+    let request_counter = Arc::new(AtomicUsize::new(0));
+    let counter_clone = Arc::clone(&request_counter);
+
+    Mock::given(wiremock::matchers::method("GET"))
+        .respond_with(move |_: &wiremock::Request| {
+            let count = counter_clone.fetch_add(1, Ordering::SeqCst);
+            if count < 2 {
+                error_template.clone()
+            } else {
+                success_template.clone()
+            }
+        })
+        .expect(3)
+        .mount(&mock_server)
+        .await;
+
+    let throttle_policy = ThrottlePolicy {
+        base_delay_ms: 100,
+        adaptive_jitter_ms: 0,
+        max_concurrent: 1,
+        max_retries: 2,
+    };
+
+    let throttle = init_throttle(throttle_policy);
+
+    let client = ClientBuilder::new(reqwest::Client::new())
+        .with_arc(throttle)
+        .build();
+
+    let start = Instant::now();
+    let url = format!("{}/throttle-only-retry", mock_server.uri());
+    let response = client.get(&url).send().await.unwrap();
+    let elapsed = start.elapsed();
+
+    assert_eq!(response.status(), 200);
+    assert_eq!(response.text().await.unwrap(), "eventual success");
+    assert_eq!(request_counter.load(Ordering::SeqCst), 3);
+
+    let min_expected = Duration::from_millis(700);
+    assert!(
+        elapsed >= min_expected,
+        "Retry/backoff delay was too short. Expected at least {:?}, got {:?}",
+        min_expected,
+        elapsed
     );
 }

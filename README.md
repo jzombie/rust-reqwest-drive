@@ -14,6 +14,7 @@ High-performance caching, throttling, and backoff middleware for [reqwest](https
 - **High-speed request caching** using [SIMD R Drive](https://crates.io/crates/simd-r-drive), a SIMD-optimized, single-file-container data store.
 - **Adaptive request throttling** with support for dynamic concurrency limits.
 - **Configurable backoff strategies** for handling rate-limiting and transient failures.
+- **Throttle-only mode** that requires no persistent store.
 
 Note: This is not **WASM** compatible.
 
@@ -25,6 +26,7 @@ Note: This is not **WASM** compatible.
 - **Customizable throttling & backoff**  
   - Control request concurrency.
   - Define exponential backoff & jitter for retries.
+    - Run in **throttle-only** mode without cache persistence.
 - **Seamless integration with `reqwest`**  
   - Works as a `reqwest-middleware` layer.
   - Easy to configure and extend.
@@ -86,6 +88,32 @@ async fn main() {
 
     let client = ClientBuilder::new(reqwest::Client::new())
         .with_arc(cache)
+        .with_arc(throttle)
+        .build();
+
+    let response = client.get("https://httpbin.org/status/429").send().await.unwrap();
+    println!("Response status: {}", response.status());
+}
+```
+
+### Throttle-only (No Data Store)
+
+Use this mode when you want rate limiting and retry/backoff behavior, but no cache layer at all:
+
+```rust
+use reqwest_drive::{init_throttle, ThrottlePolicy};
+use reqwest_middleware::ClientBuilder;
+
+#[tokio::main]
+async fn main() {
+    let throttle = init_throttle(ThrottlePolicy {
+        base_delay_ms: 200,
+        adaptive_jitter_ms: 100,
+        max_concurrent: 2,
+        max_retries: 3,
+    });
+
+    let client = ClientBuilder::new(reqwest::Client::new())
         .with_arc(throttle)
         .build();
 
@@ -209,9 +237,8 @@ let client = ClientBuilder::new(reqwest::Client::new())
 #### Throttle Policy
 
 ```rust
-use std::path::Path;
 use reqwest_middleware::ClientBuilder;
-use reqwest_drive::{init_cache_with_throttle, CachePolicy, ThrottlePolicy};
+use reqwest_drive::{init_throttle, ThrottlePolicy};
 
 let throttle_policy = ThrottlePolicy {
     base_delay_ms: 100,      // Base delay before retries
@@ -220,13 +247,11 @@ let throttle_policy = ThrottlePolicy {
     max_retries: 2,          // Number of retries before failing
 };
 
-// Creates two middleware agents
-let (cache, throttle) = init_cache_with_throttle(&Path::new("cache_storage.bin"), CachePolicy::default(), throttle_policy);
+// Creates throttle middleware only (no cache/data store)
+let throttle = init_throttle(throttle_policy);
 
-// Configure `reqwest` client with `SIMD R Drive`-powered cache and throttle/backoff support
+// Configure `reqwest` client with throttle/backoff support
 let client = ClientBuilder::new(reqwest::Client::new())
-    // Integrate `cache` middleware
-    .with_arc(cache)
     // Integrate `throttle` middleware
     .with_arc(throttle)
     .build();

@@ -66,6 +66,10 @@ impl Default for ThrottlePolicy {
 /// between retries, helping to prevent rate-limiting issues when interacting
 /// with APIs that enforce request quotas.
 ///
+/// It can run in two modes:
+/// - **Cache-aware mode** via [`DriveThrottleBackoff::new`], where cached requests can bypass throttling.
+/// - **Throttle-only mode** via [`DriveThrottleBackoff::without_cache`], where all requests are throttled.
+///
 /// Requests are throttled using a **semaphore-based** approach, ensuring that
 /// the maximum number of concurrent requests does not exceed `max_concurrent`.
 ///
@@ -78,8 +82,8 @@ pub struct DriveThrottleBackoff {
     /// Defines the backoff and throttling behavior.
     policy: ThrottlePolicy,
 
-    /// Cache layer for detecting previously cached responses.
-    cache: Arc<DriveCache>,
+    /// Optional cache layer for detecting previously cached responses.
+    cache: Option<Arc<DriveCache>>,
 }
 
 impl DriveThrottleBackoff {
@@ -97,7 +101,19 @@ impl DriveThrottleBackoff {
         Self {
             semaphore: Arc::new(Semaphore::new(policy.max_concurrent)),
             policy,
-            cache,
+            cache: Some(cache),
+        }
+    }
+
+    /// Creates a new `DriveThrottleBackoff` middleware without any cache integration.
+    ///
+    /// In this mode, every request is throttled based on the configured policy,
+    /// and no cache checks are performed.
+    pub fn without_cache(policy: ThrottlePolicy) -> Self {
+        Self {
+            semaphore: Arc::new(Semaphore::new(policy.max_concurrent)),
+            policy,
+            cache: None,
         }
     }
 
@@ -112,7 +128,7 @@ impl Middleware for DriveThrottleBackoff {
     /// Handles throttling and retry logic for HTTP requests.
     ///
     /// This method:
-    /// 1. **Checks the cache**: If the request is already cached, it bypasses throttling.
+    /// 1. **Optionally checks the cache**: In cache-aware mode, cached requests bypass throttling.
     /// 2. **Enforces concurrency limits**: Ensures no more than `max_concurrent` requests are in flight.
     /// 3. **Applies an initial delay** before sending the request.
     /// 4. **Retries failed requests**: Uses **exponential backoff** with jitter for failed requests.
@@ -131,7 +147,8 @@ impl Middleware for DriveThrottleBackoff {
     ///
     /// # Behavior
     ///
-    /// - If the request is **already cached**, the middleware immediately forwards it.
+    /// - In cache-aware mode, if the request is **already cached**, the middleware immediately forwards it.
+    /// - In throttle-only mode, cache checks are skipped.
     /// - If **throttling is required**, it waits according to the configured delay.
     /// - If a request fails, **exponential backoff** is applied before retrying.
     async fn handle(
@@ -144,12 +161,14 @@ impl Middleware for DriveThrottleBackoff {
 
         let cache_key = format!("{} {}", req.method(), &url);
 
-        if self.cache.is_cached(&req).await {
-            eprintln!("Using cache for: {}", &cache_key);
+        if let Some(cache) = &self.cache {
+            if cache.is_cached(&req).await {
+                eprintln!("Using cache for: {}", &cache_key);
 
-            return next.run(req, extensions).await;
-        } else {
-            eprintln!("No cache found for: {}", &cache_key);
+                return next.run(req, extensions).await;
+            } else {
+                eprintln!("No cache found for: {}", &cache_key);
+            }
         }
 
         // Use a custom throttle policy if provided, otherwise default to `self.policy`
