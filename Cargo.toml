@@ -6,6 +6,8 @@ description = "High-performance caching, throttling, and backoff middleware for 
 repository = "https://github.com/jzombie/rust-reqwest-drive"
 edition = "2024"
 license = "Apache-2.0"
+categories = ["web-programming", "network-programming", "caching", "asynchronous"]
+keywords = ["reqwest", "middleware", "cache", "throttle", "backoff"]
 
 [dependencies]
 async-trait = "0.1.89"
