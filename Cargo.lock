@@ -1442,7 +1442,7 @@ dependencies = [
 
 [[package]]
 name = "reqwest-drive"
-version = "0.1.0-alpha.9"
+version = "0.2.0-alpha"
 dependencies = [
  "async-trait",
  "bitcode",
