@@ -1,12 +1,13 @@
 use async_trait::async_trait;
- // Binary serialization
+// Binary serialization
+use bitcode::{Decode, Encode};
 use bytes::Bytes;
 use chrono::{DateTime, Utc};
 use http::{Extensions, HeaderMap, HeaderValue, StatusCode};
 use reqwest::{Request, Response};
 use reqwest_middleware::{Middleware, Next, Result};
-use serde::{Deserialize, Serialize};
 use simd_r_drive::DataStore;
+use simd_r_drive::traits::{DataStoreReader, DataStoreWriter};
 use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH}; // For parsing `Expires` headers
@@ -35,7 +36,7 @@ impl Default for CachePolicy {
 }
 
 /// Represents a cached HTTP response.
-#[derive(Serialize, Deserialize)]
+#[derive(Encode, Decode)]
 struct CachedResponse {
     /// HTTP status code of the cached response.
     status: u16,
@@ -106,10 +107,10 @@ impl DriveCache {
         let cache_key_bytes = cache_key.as_bytes();
 
         // let store = self.store.read().await;
-        if let Some(entry_handle) = store.read(cache_key_bytes) {
+        if let Ok(Some(entry_handle)) = store.read(cache_key_bytes) {
             eprintln!("Entry handle: {:?}", entry_handle);
 
-            if let Ok(cached) = bincode::deserialize::<CachedResponse>(entry_handle.as_slice()) {
+            if let Ok(cached) = bitcode::decode::<CachedResponse>(entry_handle.as_slice()) {
                 let now = SystemTime::now()
                     .duration_since(UNIX_EPOCH)
                     .expect("Time went backwards")
@@ -151,8 +152,7 @@ impl DriveCache {
                         chrono::DateTime::from_timestamp_millis(now as i64).unwrap()
                     );
 
-                    // TODO: Rename API method to `delete`
-                    store.delete_entry(cache_key_bytes).ok();
+                    store.delete(cache_key_bytes).ok();
                     return false;
                 }
 
@@ -282,9 +282,9 @@ impl Middleware for DriveCache {
             // Use is_cached() to determine if the cache should be used
             if self.is_cached(&req).await {
                 // let store = self.store.read().await;
-                if let Some(entry_handle) = store.read(cache_key_bytes) {
+                if let Ok(Some(entry_handle)) = store.read(cache_key_bytes) {
                     if let Ok(cached) =
-                        bincode::deserialize::<CachedResponse>(entry_handle.as_slice())
+                        bitcode::decode::<CachedResponse>(entry_handle.as_slice())
                     {
                         let mut headers = HeaderMap::new();
                         for (k, v) in cached.headers {
@@ -321,7 +321,7 @@ impl Middleware for DriveCache {
             };
 
             if should_cache {
-                let serialized = bincode::serialize(&CachedResponse {
+                let serialized = bitcode::encode(&CachedResponse {
                     status: status.as_u16(),
                     headers: headers
                         .iter()
@@ -330,7 +330,7 @@ impl Middleware for DriveCache {
                     body, // Move the original body here
                     expiration_timestamp,
                 })
-                .expect("Serialization failed");
+                ;
     
                 {
                     let store = self.store.as_ref();

@@ -1,7 +1,7 @@
 use crate::DriveCache;
 use async_trait::async_trait;
 use http::Extensions;
-use rand::Rng;
+use rand::RngExt;
 use reqwest::{Request, Response};
 use reqwest_middleware::{Error, Middleware, Next};
 use std::sync::Arc;
