@@ -231,6 +231,8 @@ async fn main() {
         .build();
 
     let mut request = client.get("https://httpbin.org/get");
+
+    // Bypass this particular request
     request.extensions().insert(CacheBypass(true));
 
     // This request skips cache read/write, but still uses throttle/backoff.
