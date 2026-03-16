@@ -1,4 +1,7 @@
-use crate::{DriveCache, cache_middleware::CacheBypass};
+use crate::{
+    DriveCache,
+    cache_middleware::{CacheBust, CacheBypass},
+};
 use async_trait::async_trait;
 use http::Extensions;
 use rand::RngExt;
@@ -162,10 +165,14 @@ impl Middleware for DriveThrottleBackoff {
             .get::<CacheBypass>()
             .map(|flag| flag.0)
             .unwrap_or(false);
+        let bust_cache = extensions
+            .get::<CacheBust>()
+            .map(|flag| flag.0)
+            .unwrap_or(false);
 
         let cache_key = format!("{} {}", req.method(), &url);
 
-        if !bypass_cache {
+        if !bypass_cache && !bust_cache {
             if let Some(cache) = &self.cache {
                 if cache.is_cached(&req).await {
                     eprintln!("Using cache for: {}", &cache_key);

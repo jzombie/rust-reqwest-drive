@@ -21,10 +21,14 @@ Note: This is not **WASM** compatible.
 - **Efficient single-file caching**  
   - Uses **SIMD acceleration** for fast reads/writes.
   - Supports **header-based TTLs** or custom expiration policies.
+    - Supports per-request cache controls:
+        - **Bypass** cache (`CacheBypass`) for one-off uncached reads.
+        - **Bust & refresh** cache (`CacheBust`) to force a fresh value and update stored cache.
 - **Customizable throttling & backoff**  
   - Control request concurrency.
   - Define exponential backoff & jitter for retries.
     - Run in **throttle-only** mode without cache persistence.
+    - Supports per-request throttle policy overrides via request extensions.
 - **Seamless integration with `reqwest`**  
   - Works as a `reqwest-middleware` layer.
   - Easy to configure and extend.
@@ -234,6 +238,38 @@ async fn main() {
     request.extensions().insert(CacheBypass(true));
 
     // This request skips cache read/write, but still uses throttle/backoff.
+    let response = request.send().await.unwrap();
+    println!("Response status: {}", response.status());
+}
+```
+
+### Busting Cache for a Single Request (Refresh)
+
+Use this when you want to force a fresh fetch now and update the cached entry for later requests:
+
+```rust
+use reqwest_drive::{CacheBust, CachePolicy, ThrottlePolicy, init_cache_with_throttle};
+use reqwest_middleware::ClientBuilder;
+use std::path::Path;
+
+#[tokio::main]
+async fn main() {
+    let (cache, throttle) = init_cache_with_throttle(
+        Path::new("cache_storage.bin"),
+        CachePolicy::default(),
+        ThrottlePolicy::default(),
+    );
+
+    let client = ClientBuilder::new(reqwest::Client::new())
+        .with_arc(cache)
+        .with_arc(throttle)
+        .build();
+
+    let mut request = client.get("https://httpbin.org/get");
+
+    // Bust cache for this request: skip cache read, then refresh cache with response.
+    request.extensions().insert(CacheBust(true));
+
     let response = request.send().await.unwrap();
     println!("Response status: {}", response.status());
 }

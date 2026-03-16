@@ -48,6 +48,43 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH}; // For parsing `Expires` head
 #[derive(Clone, Copy, Debug, Default)]
 pub struct CacheBypass(pub bool);
 
+/// Per-request control for busting and refreshing cache behavior.
+///
+/// When set to `CacheBust(true)` in request extensions, the cache middleware
+/// skips cache reads for that request, forces a fresh network fetch, and then
+/// writes the new response back to cache (subject to `CachePolicy`).
+///
+/// This is useful when you want to refresh a stale entry and make future
+/// non-busted requests use the updated cached response.
+///
+/// # Example
+///
+/// ```rust
+/// use reqwest_drive::{CacheBust, CachePolicy, ThrottlePolicy, init_cache_with_throttle};
+/// use reqwest_middleware::ClientBuilder;
+/// use std::path::Path;
+///
+/// # #[tokio::main]
+/// # async fn main() {
+/// let (cache, throttle) = init_cache_with_throttle(
+///     Path::new("cache_storage.bin"),
+///     CachePolicy::default(),
+///     ThrottlePolicy::default(),
+/// );
+///
+/// let client = ClientBuilder::new(reqwest::Client::new())
+///     .with_arc(cache)
+///     .with_arc(throttle)
+///     .build();
+///
+/// let mut request = client.get("https://example.com");
+/// request.extensions().insert(CacheBust(true));
+/// let _ = request.send().await;
+/// # }
+/// ```
+#[derive(Clone, Copy, Debug, Default)]
+pub struct CacheBust(pub bool);
+
 /// Defines the caching policy for storing and retrieving responses.
 #[derive(Clone, Debug)]
 pub struct CachePolicy {
@@ -308,6 +345,10 @@ impl Middleware for DriveCache {
             .get::<CacheBypass>()
             .map(|flag| flag.0)
             .unwrap_or(false);
+        let bust_cache = extensions
+            .get::<CacheBust>()
+            .map(|flag| flag.0)
+            .unwrap_or(false);
 
         let cache_key = self.generate_cache_key(&req);
 
@@ -318,7 +359,7 @@ impl Middleware for DriveCache {
 
         if req.method() == "GET" || req.method() == "HEAD" {
             // Use is_cached() to determine if the cache should be used
-            if !bypass_cache && self.is_cached(&req).await {
+            if !bypass_cache && !bust_cache && self.is_cached(&req).await {
                 // let store = self.store.read().await;
                 if let Ok(Some(entry_handle)) = store.read(cache_key_bytes) {
                     if let Ok(cached) = bitcode::decode::<CachedResponse>(entry_handle.as_slice()) {
