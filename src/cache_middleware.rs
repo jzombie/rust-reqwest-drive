@@ -562,29 +562,8 @@ mod tests {
     use rand::{RngExt, SeedableRng};
     use reqwest::Method;
     use std::collections::{HashMap, HashSet};
-    use std::env;
     use std::sync::Once;
     use tempfile::TempDir;
-
-    // These two collision tests are consistently much slower on GitHub-hosted Ubuntu
-    // runners than on macOS/Windows. Keep full workload everywhere else and
-    // reduce only in Linux CI to stabilize pipeline runtime.
-    //
-    // Rationale:
-    // - GitHub-hosted Ubuntu runners have shown noticeably higher overhead
-    //   for many small allocations and for creating `reqwest::Client` repeatedly
-    //   inside tight loops. To avoid flakiness and long CI times we only apply
-    //   the reduced workload when running in CI on Linux.
-    fn is_ci_slow_environment() -> bool {
-        let is_ci = env::var("CI")
-            .map(|value| value == "1" || value.eq_ignore_ascii_case("true"))
-            .unwrap_or(false)
-            || env::var("GITHUB_ACTIONS")
-                .map(|value| value == "1" || value.eq_ignore_ascii_case("true"))
-                .unwrap_or(false);
-
-        is_ci && cfg!(target_os = "linux")
-    }
 
     #[allow(dead_code)]
     fn init_test_tracing() {
@@ -810,11 +789,8 @@ mod tests {
         let mut observed_hash_to_key: HashMap<u64, String> = HashMap::new();
         let mut random_generator = StdRng::seed_from_u64(0xD15EA5E5);
 
-        let sample_count = if is_ci_slow_environment() {
-            10_000
-        } else {
-            50_000
-        };
+        let sample_count = 50_000;
+
         let mut distinct_key_count = 0usize;
 
         for _ in 0..sample_count {
@@ -844,28 +820,20 @@ mod tests {
     fn exhaustive_cache_key_matrix_no_hash_collisions_for_distinct_keys() {
         let cache = build_cache_for_tests();
 
-        let (methods, paths, queries) = if is_ci_slow_environment() {
-            (
-                vec![Method::GET, Method::HEAD, Method::POST],
-                vec!["/resource", "/resource/v2"],
-                vec!["", "?a=1", "?a=2", "?a=1&b=2", "?b=2&a=1"],
-            )
-        } else {
-            (
-                vec![
-                    Method::GET,
-                    Method::HEAD,
-                    Method::POST,
-                    Method::PUT,
-                    Method::PATCH,
-                    Method::DELETE,
-                ],
-                vec!["/resource", "/resource/v2", "/resource/deep/path"],
-                vec![
-                    "", "?a=1", "?a=2", "?a=1&b=2", "?b=2&a=1", "?a=1&a=2", "?a=1&a=3", "?z=9",
-                ],
-            )
-        };
+        let (methods, paths, queries) = (
+            vec![
+                Method::GET,
+                Method::HEAD,
+                Method::POST,
+                Method::PUT,
+                Method::PATCH,
+                Method::DELETE,
+            ],
+            vec!["/resource", "/resource/v2", "/resource/deep/path"],
+            vec![
+                "", "?a=1", "?a=2", "?a=1&b=2", "?b=2&a=1", "?a=1&a=2", "?a=1&a=3", "?z=9",
+            ],
+        );
 
         let accept_values = [None, Some("application/json"), Some("text/plain")];
         let language_values = [None, Some("en-US"), Some("fr-FR")];
