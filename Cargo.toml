@@ -18,10 +18,10 @@ reqwest = "0.12.15"
 reqwest-middleware = "0.4.1"
 serde = { version = "1.0.219", features = ["derive"] }
 simd-r-drive = "0.3.0-alpha.1"
-tokio = "1.44.1"
+tokio = "1.50.0"
 
 [dev-dependencies]
 wiremock = "0.6.3"
-tokio = { version = "1.44.1", features = ["rt-multi-thread"] }
+tokio = { version = "1.50.0", features = ["rt-multi-thread"] }
 tempdir = "0.3.7"
 doc-comment = "0.3.3"
