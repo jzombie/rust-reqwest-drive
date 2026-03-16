@@ -25,12 +25,15 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH}; // For parsing `Expires` head
 /// ```rust
 /// use reqwest_drive::{CacheBypass, CachePolicy, ThrottlePolicy, init_cache_with_throttle};
 /// use reqwest_middleware::ClientBuilder;
-/// use std::path::Path;
+/// use tempfile::tempdir;
 ///
 /// # #[tokio::main]
 /// # async fn main() {
+/// let temp_dir = tempdir().unwrap();
+/// let cache_path = temp_dir.path().join("cache_storage.bin");
+///
 /// let (cache, throttle) = init_cache_with_throttle(
-///     Path::new("cache_storage.bin"),
+///     &cache_path,
 ///     CachePolicy::default(),
 ///     ThrottlePolicy::default(),
 /// );
@@ -62,12 +65,15 @@ pub struct CacheBypass(pub bool);
 /// ```rust
 /// use reqwest_drive::{CacheBust, CachePolicy, ThrottlePolicy, init_cache_with_throttle};
 /// use reqwest_middleware::ClientBuilder;
-/// use std::path::Path;
+/// use tempfile::tempdir;
 ///
 /// # #[tokio::main]
 /// # async fn main() {
+/// let temp_dir = tempdir().unwrap();
+/// let cache_path = temp_dir.path().join("cache_storage.bin");
+///
 /// let (cache, throttle) = init_cache_with_throttle(
-///     Path::new("cache_storage.bin"),
+///     &cache_path,
 ///     CachePolicy::default(),
 ///     ThrottlePolicy::default(),
 /// );

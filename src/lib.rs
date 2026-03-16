@@ -185,12 +185,14 @@ pub fn init_throttle(throttle_policy: ThrottlePolicy) -> Arc<DriveThrottleBackof
 /// ```rust
 /// use reqwest_drive::{init_cache_with_throttle, init_client_with_cache_and_throttle, CachePolicy, ThrottlePolicy};
 /// use reqwest_middleware::ClientWithMiddleware;
-/// use std::path::Path;
-/// use std::sync::Arc;
 /// use std::time::Duration;
+/// use tempfile::tempdir;
 ///
 /// #[tokio::main]
 /// async fn main() {
+///     let temp_dir = tempdir().unwrap();
+///     let cache_path = temp_dir.path().join("cache_storage.bin");
+///
 ///     let cache_policy = CachePolicy {
 ///         default_ttl: Duration::from_secs(60),
 ///         respect_headers: true,
@@ -204,7 +206,7 @@ pub fn init_throttle(throttle_policy: ThrottlePolicy) -> Arc<DriveThrottleBackof
 ///         max_retries: 2,
 ///     };
 ///
-///     let (cache, throttle) = init_cache_with_throttle(Path::new("cache_storage.bin"), cache_policy, throttle_policy);
+///     let (cache, throttle) = init_cache_with_throttle(&cache_path, cache_policy, throttle_policy);
 ///
 ///     let client: ClientWithMiddleware = init_client_with_cache_and_throttle(cache, throttle);
 ///

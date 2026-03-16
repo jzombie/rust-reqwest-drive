@@ -26,4 +26,5 @@ tracing = "0.1.44"
 wiremock = "0.6.5"
 tokio = { version = "1.50.0", features = ["rt-multi-thread"] }
 tempdir = "0.3.7"
+tempfile = "3.27.0"
 tracing-subscriber = "0.3.23"

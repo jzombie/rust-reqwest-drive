@@ -57,12 +57,15 @@ cargo add reqwest-drive
 ```rust
 use reqwest_drive::{init_cache, CachePolicy};
 use reqwest_middleware::ClientBuilder;
-use std::path::Path;
 use std::time::Duration;
+use tempfile::tempdir;
 
 #[tokio::main]
 async fn main() {
-    let cache = init_cache(Path::new("cache_storage.bin"), CachePolicy {
+    let temp_dir = tempdir().unwrap();
+    let cache_path = temp_dir.path().join("cache_storage.bin");
+
+    let cache = init_cache(&cache_path, CachePolicy {
         default_ttl: Duration::from_secs(3600), // Cache for 1 hour
         respect_headers: true,
         cache_status_override: None,
@@ -83,13 +86,16 @@ To enable request throttling and exponential backoff:
 ```rust
 use reqwest_drive::{init_cache_with_throttle, CachePolicy, ThrottlePolicy};
 use reqwest_middleware::ClientBuilder;
-use std::path::Path;
 use std::time::Duration;
+use tempfile::tempdir;
 
 #[tokio::main]
 async fn main() {
+    let temp_dir = tempdir().unwrap();
+    let cache_path = temp_dir.path().join("cache_storage.bin");
+
     let (cache, throttle) = init_cache_with_throttle(
-        Path::new("cache_storage.bin"),
+        &cache_path,
         CachePolicy::default(),
         ThrottlePolicy {
             base_delay_ms: 200,
@@ -144,9 +150,8 @@ use reqwest_drive::{
     init_cache_with_throttle, init_client_with_cache_and_throttle, CachePolicy, ThrottlePolicy,
 };
 use reqwest_middleware::ClientWithMiddleware;
-use std::path::Path;
-use std::sync::Arc;
 use std::time::Duration;
+use tempfile::tempdir;
 
 #[tokio::main]
 async fn main() {
@@ -163,8 +168,11 @@ async fn main() {
         max_retries: 2,         // Retry up to 2 times on failure
     };
 
+    let temp_dir = tempdir().unwrap();
+    let cache_path = temp_dir.path().join("cache_storage.bin");
+
     // Initialize cache and throttling middleware
-    let (cache, throttle) = init_cache_with_throttle(Path::new("cache_storage.bin"), cache_policy, throttle_policy);
+    let (cache, throttle) = init_cache_with_throttle(&cache_path, cache_policy, throttle_policy);
 
     // Initialize a client with cache and throttling middleware
     let client: ClientWithMiddleware = init_client_with_cache_and_throttle(cache, throttle);
@@ -182,13 +190,16 @@ To override the throttle policy for a single request:
 ```rust
 use reqwest_drive::{init_cache_with_throttle, CachePolicy, ThrottlePolicy};
 use reqwest_middleware::ClientBuilder;
-use std::path::Path;
 use std::time::Duration;
+use tempfile::tempdir;
 
 #[tokio::main]
 async fn main() {
+    let temp_dir = tempdir().unwrap();
+    let cache_path = temp_dir.path().join("cache_storage.bin");
+
     let (cache, throttle) = init_cache_with_throttle(
-        Path::new("cache_storage.bin"),
+        &cache_path,
         CachePolicy::default(),
         ThrottlePolicy {
             base_delay_ms: 200,      // Default base delay
@@ -228,12 +239,15 @@ When using cache + throttle together, you can bypass cache for an individual req
 ```rust
 use reqwest_drive::{CacheBypass, CachePolicy, ThrottlePolicy, init_cache_with_throttle};
 use reqwest_middleware::ClientBuilder;
-use std::path::Path;
+use tempfile::tempdir;
 
 #[tokio::main]
 async fn main() {
+    let temp_dir = tempdir().unwrap();
+    let cache_path = temp_dir.path().join("cache_storage.bin");
+
     let (cache, throttle) = init_cache_with_throttle(
-        Path::new("cache_storage.bin"),
+        &cache_path,
         CachePolicy::default(),
         ThrottlePolicy::default(),
     );
@@ -261,12 +275,15 @@ Use this when you want to force a fresh fetch now and update the cached entry fo
 ```rust
 use reqwest_drive::{CacheBust, CachePolicy, ThrottlePolicy, init_cache_with_throttle};
 use reqwest_middleware::ClientBuilder;
-use std::path::Path;
+use tempfile::tempdir;
 
 #[tokio::main]
 async fn main() {
+    let temp_dir = tempdir().unwrap();
+    let cache_path = temp_dir.path().join("cache_storage.bin");
+
     let (cache, throttle) = init_cache_with_throttle(
-        Path::new("cache_storage.bin"),
+        &cache_path,
         CachePolicy::default(),
         ThrottlePolicy::default(),
     );
@@ -293,23 +310,32 @@ The middleware can be fine-tuned using the following options:
 #### Cache Policy
 
 ```rust
-use std::path::Path;
 use reqwest_middleware::ClientBuilder;
 use reqwest_drive::{init_cache, CachePolicy};
 use std::time::Duration;
+use tempfile::tempdir;
 
-let cache_policy = CachePolicy {
-    default_ttl: Duration::from_secs(60 * 60), // Default: 1 hour
-    respect_headers: true, // Use HTTP headers for caching decisions
-    cache_status_override: Some(vec![200, 404]), // Define which status codes are cacheable
-};
+#[tokio::main]
+async fn main() {
+    let temp_dir = tempdir().unwrap();
+    let cache_path = temp_dir.path().join("cache_storage.bin");
 
-let cache = init_cache(&Path::new("cache_storage.bin"), cache_policy);
+    let cache_policy = CachePolicy {
+        default_ttl: Duration::from_secs(60 * 60), // Default: 1 hour
+        respect_headers: true, // Use HTTP headers for caching decisions
+        cache_status_override: Some(vec![200, 404]), // Define which status codes are cacheable
+    };
 
-// Configure `reqwest` client with `SIMD R Drive`-powered cache
-let client = ClientBuilder::new(reqwest::Client::new())
-    .with_arc(cache)
-    .build();
+    let cache = init_cache(&cache_path, cache_policy);
+
+    // Configure `reqwest` client with `SIMD R Drive`-powered cache
+    let client = ClientBuilder::new(reqwest::Client::new())
+        .with_arc(cache)
+        .build();
+
+    let response = client.get("https://httpbin.org/get").send().await.unwrap();
+    println!("Response status: {}", response.status());
+}
 ```
 
 #### Throttle Policy
@@ -318,21 +344,27 @@ let client = ClientBuilder::new(reqwest::Client::new())
 use reqwest_middleware::ClientBuilder;
 use reqwest_drive::{init_throttle, ThrottlePolicy};
 
-let throttle_policy = ThrottlePolicy {
-    base_delay_ms: 100,      // Base delay before retries
-    adaptive_jitter_ms: 50,  // Add jitter to prevent synchronization issues
-    max_concurrent: 1,       // Allow only 1 concurrent request
-    max_retries: 2,          // Number of retries before failing
-};
+#[tokio::main]
+async fn main() {
+    let throttle_policy = ThrottlePolicy {
+        base_delay_ms: 100,      // Base delay before retries
+        adaptive_jitter_ms: 50,  // Add jitter to prevent synchronization issues
+        max_concurrent: 1,       // Allow only 1 concurrent request
+        max_retries: 2,          // Number of retries before failing
+    };
 
-// Creates throttle middleware only (no cache/data store)
-let throttle = init_throttle(throttle_policy);
+    // Creates throttle middleware only (no cache/data store)
+    let throttle = init_throttle(throttle_policy);
 
-// Configure `reqwest` client with throttle/backoff support
-let client = ClientBuilder::new(reqwest::Client::new())
-    // Integrate `throttle` middleware
-    .with_arc(throttle)
-    .build();
+    // Configure `reqwest` client with throttle/backoff support
+    let client = ClientBuilder::new(reqwest::Client::new())
+        // Integrate `throttle` middleware
+        .with_arc(throttle)
+        .build();
+
+    let response = client.get("https://httpbin.org/get").send().await.unwrap();
+    println!("Response status: {}", response.status());
+}
 ```
 
 ## Why `reqwest-drive`?
