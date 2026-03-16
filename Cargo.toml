@@ -17,7 +17,7 @@ rand = "0.9.0"
 reqwest = "0.12.15"
 reqwest-middleware = "0.4.1"
 serde = { version = "1.0.219", features = ["derive"] }
-simd-r-drive = "0.3.0-alpha.1"
+simd-r-drive = "0.15.5-alpha"
 tokio = "1.44.1"
 
 [dev-dependencies]
