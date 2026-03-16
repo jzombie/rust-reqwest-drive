@@ -1,8 +1,6 @@
 # reqwest-drive
 
-[![Crates.io](https://img.shields.io/crates/v/reqwest-drive.svg)](https://crates.io/crates/reqwest-drive)
-[![Docs.rs](https://docs.rs/reqwest-drive/badge.svg)](https://docs.rs/reqwest-drive)
-[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](https://github.com/jzombie/rust-reqwest-drive/blob/main/LICENSE)
+[![made-with-rust][rust-logo]][rust-src-page] [![crates.io][crates-badge]][crates-page] [![MIT licensed][mit-license-badge]][mit-license-page] [![Apache 2.0 licensed][apache-2.0-license-badge]][apache-2.0-license-page] [![Coverage][coveralls-badge]][coveralls-page]
 
 High-performance caching, throttling, and backoff middleware for [reqwest](https://crates.io/crates/reqwest), powered by **SIMD-accelerated** single-file storage.
 
@@ -465,4 +463,22 @@ assert_eq!(request.url().as_str(), "https://httpbin.org/get");
 ✅ **Backoff-aware throttling** helps prevent API bans due to excessive requests.
 
 ## License
-`reqwest-drive` is licensed under Apache License, Version 2.0 [LICENSE](https://github.com/jzombie/rust-reqwest-drive/blob/main/LICENSE).
+
+`reqwest-drive` is primarily distributed under the terms of both the MIT license and the Apache License (Version 2.0).
+
+See [LICENSE-APACHE](./LICENSE-APACHE) and [LICENSE-MIT](./LICENSE-MIT) for details.
+
+[rust-src-page]: https://www.rust-lang.org/
+[rust-logo]: https://img.shields.io/badge/Made%20with-Rust-black
+
+[crates-page]: https://crates.io/crates/reqwest-drive
+[crates-badge]: https://img.shields.io/crates/v/reqwest-drive.svg
+
+[mit-license-page]: ./LICENSE-MIT
+[mit-license-badge]: https://img.shields.io/badge/license-MIT-blue.svg
+
+[apache-2.0-license-page]: ./LICENSE-APACHE
+[apache-2.0-license-badge]: https://img.shields.io/badge/license-Apache%202.0-blue.svg
+
+[coveralls-page]: https://coveralls.io/github/jzombie/rust-reqwest-drive?branch=main
+[coveralls-badge]: https://img.shields.io/coveralls/github/jzombie/rust-reqwest-drive
