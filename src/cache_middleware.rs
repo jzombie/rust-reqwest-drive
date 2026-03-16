@@ -122,6 +122,14 @@ struct CachedResponse {
 }
 
 /// Provides an HTTP cache layer backed by a `SIMD R Drive` data store.
+///
+/// ## Concurrency model
+///
+/// - Thread-safe for concurrent access within a single process.
+/// - Not multi-process safe for concurrent access to the same backing file.
+///
+/// If multiple processes need caching, use process-level coordination
+/// (e.g., external locking/ownership) or separate cache files per process.
 #[derive(Clone)]
 pub struct DriveCache {
     store: Arc<DataStore>,
@@ -135,6 +143,11 @@ impl DriveCache {
     ///
     /// * `cache_storage_file` - Path to the file where cached responses are stored.
     /// * `policy` - Configuration specifying cache expiration behavior.
+    ///
+    /// # Concurrency
+    ///
+    /// The cache is thread-safe within a process, but the backing file should
+    /// not be shared for concurrent reads/writes across multiple processes.
     ///
     /// # Panics
     ///
@@ -154,6 +167,11 @@ impl DriveCache {
     ///
     /// * `store` - A shared `Arc<DataStore>` instance.
     /// * `policy` - Cache expiration configuration.
+    ///
+    /// # Concurrency
+    ///
+    /// This is thread-safe within a process. Avoid concurrent multi-process
+    /// access to the same underlying store/file.
     pub fn with_drive_arc(store: Arc<DataStore>, policy: CachePolicy) -> Self {
         Self { store, policy }
     }

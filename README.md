@@ -18,6 +18,12 @@ High-performance caching, throttling, and backoff middleware for [reqwest](https
 
 Note: This is not **WASM** compatible.
 
+### Cache safety note
+
+- The cache layer is **thread-safe** within a single process.
+- The cache layer is **not multi-process safe** when multiple processes target the same cache file concurrently.
+- If your deployment has multiple processes/workers, use process-level coordination or separate cache files.
+
 ## Features
 
 - **Efficient single-file caching**  

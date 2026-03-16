@@ -20,6 +20,11 @@ use std::sync::Arc;
 ///
 /// This function creates a new `DriveCache` instance backed by a `DataStore` file.
 ///
+/// ## Concurrency
+///
+/// Thread-safe within a single process.
+/// Not multi-process safe when multiple processes use the same cache file concurrently.
+///
 /// # Arguments
 ///
 /// * `cache_storage_file` - Path to the file where cached responses are stored.
@@ -37,6 +42,11 @@ pub fn init_cache(cache_storage_file: &Path, policy: CachePolicy) -> Arc<DriveCa
 /// This function creates:
 /// - A `DriveCache` instance for response caching.
 /// - A `DriveThrottleBackoff` instance for rate-limiting and retrying failed requests.
+///
+/// ## Concurrency
+///
+/// The cache component is thread-safe within a process, but the cache file
+/// should not be shared concurrently across multiple processes.
 ///
 /// # Arguments
 ///
@@ -67,6 +77,11 @@ pub fn init_cache_with_throttle(
 /// This function is useful if a shared `DataStore` instance already exists
 /// and should be reused instead of creating a new one.
 ///
+/// ## Concurrency
+///
+/// Thread-safe within a process.
+/// Avoid sharing the same underlying store/file concurrently across processes.
+///
 /// # Arguments
 ///
 /// * `store` - A shared `Arc<DataStore>` instance.
@@ -83,6 +98,11 @@ pub fn init_cache_with_drive(store: Arc<DataStore>, policy: CachePolicy) -> Arc<
 ///
 /// This function is useful if a shared `DataStore` instance already exists
 /// and should be reused instead of creating a new one.
+///
+/// ## Concurrency
+///
+/// Thread-safe within a process.
+/// Avoid concurrent multi-process access to the same backing store/file.
 ///
 /// # Arguments
 ///
