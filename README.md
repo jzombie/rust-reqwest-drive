@@ -466,7 +466,7 @@ assert_eq!(request.url().as_str(), "https://httpbin.org/get");
 
 `reqwest-drive` is primarily distributed under the terms of both the MIT license and the Apache License (Version 2.0).
 
-See [LICENSE-APACHE](./LICENSE-APACHE) and [LICENSE-MIT](./LICENSE-MIT) for details.
+See [LICENSE-APACHE][apache-2.0-license-page] and [LICENSE-MIT][mit-license-page] for details.
 
 [rust-src-page]: https://www.rust-lang.org/
 [rust-logo]: https://img.shields.io/badge/Made%20with-Rust-black
@@ -474,10 +474,10 @@ See [LICENSE-APACHE](./LICENSE-APACHE) and [LICENSE-MIT](./LICENSE-MIT) for deta
 [crates-page]: https://crates.io/crates/reqwest-drive
 [crates-badge]: https://img.shields.io/crates/v/reqwest-drive.svg
 
-[mit-license-page]: ./LICENSE-MIT
+[mit-license-page]: https://raw.githubusercontent.com/jzombie/rust-reqwest-drive/refs/heads/main/LICENSE-MIT
 [mit-license-badge]: https://img.shields.io/badge/license-MIT-blue.svg
 
-[apache-2.0-license-page]: ./LICENSE-APACHE
+[apache-2.0-license-page]: https://raw.githubusercontent.com/jzombie/rust-reqwest-drive/refs/heads/main/LICENSE-APACHE
 [apache-2.0-license-badge]: https://img.shields.io/badge/license-Apache%202.0-blue.svg
 
 [coveralls-page]: https://coveralls.io/github/jzombie/rust-reqwest-drive?branch=main
