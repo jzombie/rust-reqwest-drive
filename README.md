@@ -267,7 +267,7 @@ async fn main() {
 
     let mut request = client.get("https://httpbin.org/get");
 
-    // Bust cache for this request: skip cache read, then refresh cache with response.
+    // Bust cache for this request: skip cache read, then refresh cache with response
     request.extensions().insert(CacheBust(true));
 
     let response = request.send().await.unwrap();
