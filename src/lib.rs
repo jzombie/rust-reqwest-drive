@@ -1,5 +1,4 @@
-#[cfg(doctest)]
-doc_comment::doctest!("../README.md");
+#![doc = include_str!("../README.md")]
 
 use std::path::Path;
 
@@ -13,8 +12,6 @@ pub use throttle_middleware::{DriveThrottleBackoff, ThrottlePolicy};
 
 use simd_r_drive::DataStore;
 use std::sync::Arc;
-
-// TODO: Add usage examples here
 
 /// Initializes only the cache middleware with a file-based data store.
 ///

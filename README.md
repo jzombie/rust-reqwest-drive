@@ -2,7 +2,7 @@
 
 [![Crates.io](https://img.shields.io/crates/v/reqwest-drive.svg)](https://crates.io/crates/reqwest-drive)
 [![Docs.rs](https://docs.rs/reqwest-drive/badge.svg)](https://docs.rs/reqwest-drive)
-[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](https://github.com/jzombie/rust-reqwest-drive/blob/main/LICENSE)
 
 **THIS API IS A WORK IN PROGRESS.**
 
@@ -342,4 +342,4 @@ let client = ClientBuilder::new(reqwest::Client::new())
 ✅ **Backoff-aware throttling** helps prevent API bans due to excessive requests.
 
 ## License
-`reqwest-drive` is licensed under Apache License, Version 2.0 [LICENSE](LICENSE).
+`reqwest-drive` is licensed under Apache License, Version 2.0 [LICENSE](https://github.com/jzombie/rust-reqwest-drive/blob/main/LICENSE).
