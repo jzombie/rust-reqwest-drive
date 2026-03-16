@@ -120,7 +120,6 @@ impl DriveThrottleBackoff {
         }
     }
 
-    #[cfg(any(test, debug_assertions))]
     pub fn available_permits(&self) -> usize {
         self.semaphore.available_permits()
     }

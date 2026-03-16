@@ -492,3 +492,489 @@ fn build_response(status: StatusCode, headers: HeaderMap, body: Bytes) -> Respon
 
     Response::from(http_response)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rand::rngs::StdRng;
+    use rand::{RngExt, SeedableRng};
+    use reqwest::Method;
+    use std::collections::{HashMap, HashSet};
+    use std::sync::Once;
+    use std::time::Instant;
+    use tempdir::TempDir;
+
+    fn init_test_tracing() {
+        static INIT: Once = Once::new();
+
+        INIT.call_once(|| {
+            let _ = tracing_subscriber::fmt()
+                .with_test_writer()
+                .with_env_filter(
+                    tracing_subscriber::EnvFilter::try_from_default_env()
+                        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
+                )
+                .try_init();
+        });
+    }
+
+    fn build_request(method: Method, url: &str, headers: &[(&str, Option<&str>)]) -> Request {
+        let mut request_builder = reqwest::Client::new().request(method, url);
+
+        for (name, value) in headers {
+            if let Some(value) = value {
+                request_builder = request_builder.header(*name, *value);
+            }
+        }
+
+        request_builder
+            .build()
+            .expect("failed to build matrix request")
+    }
+
+    fn build_cache_for_tests() -> DriveCache {
+        let temp_dir = TempDir::new("cache_key_matrix_test").expect("failed to create temp dir");
+        let cache_path = temp_dir.path().join("cache_key_matrix.bin");
+        DriveCache::new(&cache_path, CachePolicy::default())
+    }
+
+    fn build_unique_request_from_index(index: u64) -> Request {
+        let methods = [
+            Method::GET,
+            Method::HEAD,
+            Method::POST,
+            Method::PUT,
+            Method::PATCH,
+            Method::DELETE,
+        ];
+
+        let method = methods[(index % methods.len() as u64) as usize].clone();
+        let path = format!("/resource/{}/{}/{}", index % 97, index % 503, index % 9973);
+
+        let query = format!(
+            "a={}&b={}&c={}&d={}",
+            index,
+            index.wrapping_mul(31),
+            index.rotate_left(7),
+            index ^ 0xA5A5_A5A5_A5A5_A5A5
+        );
+
+        let url = format!("https://example.test{}?{}", path, query);
+
+        let accept_values = ["application/json", "text/plain", "*/*"];
+        let language_values = ["en-US", "fr-FR", "es-ES", "de-DE"];
+        let content_type_values = ["application/json", "application/xml", "text/plain"];
+
+        let mut request_builder = reqwest::Client::new().request(method, url);
+        request_builder = request_builder.header(
+            "accept",
+            accept_values[(index % accept_values.len() as u64) as usize],
+        );
+        request_builder = request_builder.header(
+            "accept-language",
+            language_values[(index % language_values.len() as u64) as usize],
+        );
+        request_builder = request_builder.header(
+            "content-type",
+            content_type_values[(index % content_type_values.len() as u64) as usize],
+        );
+
+        let authorization_value = format!("Bearer token-{:016x}", index);
+        request_builder = request_builder.header("authorization", authorization_value);
+
+        let api_key_value = format!("api-key-{:016x}", index.rotate_right(11));
+        request_builder = request_builder.header("x-api-key", api_key_value);
+
+        request_builder
+            .build()
+            .expect("failed to build stress request")
+    }
+
+    fn random_token(rng: &mut StdRng, min_len: usize, max_len: usize) -> String {
+        let alphabet = b"abcdefghijklmnopqrstuvwxyz0123456789";
+        let token_len = rng.random_range(min_len..=max_len);
+
+        (0..token_len)
+            .map(|_| {
+                let index = rng.random_range(0..alphabet.len());
+                alphabet[index] as char
+            })
+            .collect()
+    }
+
+    fn build_random_request(rng: &mut StdRng) -> Request {
+        let methods = [
+            Method::GET,
+            Method::HEAD,
+            Method::POST,
+            Method::PUT,
+            Method::PATCH,
+            Method::DELETE,
+        ];
+
+        let method = methods[rng.random_range(0..methods.len())].clone();
+        let mut url = format!(
+            "https://example.test/{}/{}",
+            random_token(rng, 3, 10),
+            random_token(rng, 3, 10)
+        );
+
+        let query_pair_count = rng.random_range(0..=6);
+        if query_pair_count > 0 {
+            url.push('?');
+            for query_index in 0..query_pair_count {
+                if query_index > 0 {
+                    url.push('&');
+                }
+
+                let query_key = random_token(rng, 1, 8);
+                let query_value = random_token(rng, 0, 12);
+                url.push_str(&query_key);
+                url.push('=');
+                url.push_str(&query_value);
+            }
+        }
+
+        let mut request_builder = reqwest::Client::new().request(method, url);
+
+        if rng.random::<bool>() {
+            let accept_values = ["application/json", "text/plain", "*/*"];
+            request_builder =
+                request_builder.header("accept", accept_values[rng.random_range(0..3)]);
+        }
+
+        if rng.random::<bool>() {
+            let language_values = ["en-US", "fr-FR", "es-ES", "de-DE"];
+            request_builder =
+                request_builder.header("accept-language", language_values[rng.random_range(0..4)]);
+        }
+
+        if rng.random::<bool>() {
+            let content_type_values = ["application/json", "application/xml", "text/plain"];
+            request_builder =
+                request_builder.header("content-type", content_type_values[rng.random_range(0..3)]);
+        }
+
+        if rng.random::<bool>() {
+            let authorization_value = format!("Bearer {}", random_token(rng, 16, 48));
+            request_builder = request_builder.header("authorization", authorization_value);
+        }
+
+        if rng.random::<bool>() {
+            let api_key_value = random_token(rng, 12, 32);
+            request_builder = request_builder.header("x-api-key", api_key_value);
+        }
+
+        request_builder
+            .build()
+            .expect("failed to build test request")
+    }
+
+    #[test]
+    fn fuzz_cache_key_hash_collisions_uses_library_key_generator() {
+        let temp_dir = TempDir::new("cache_key_fuzz_test").expect("failed to create temp dir");
+        let cache_path = temp_dir.path().join("cache_key_fuzz.bin");
+        let cache = DriveCache::new(&cache_path, CachePolicy::default());
+
+        let mut observed_hash_to_key: HashMap<u64, String> = HashMap::new();
+        let mut random_generator = StdRng::seed_from_u64(0xD15EA5E5);
+
+        let sample_count = 50_000;
+        let mut distinct_key_count = 0usize;
+
+        for _ in 0..sample_count {
+            let request = build_random_request(&mut random_generator);
+
+            let cache_key = cache.generate_cache_key(&request);
+            let hash = compute_hash(cache_key.as_bytes());
+
+            if let Some(existing_key) = observed_hash_to_key.get(&hash) {
+                assert_eq!(
+                    existing_key, &cache_key,
+                    "hash collision detected for distinct cache keys"
+                );
+            } else {
+                observed_hash_to_key.insert(hash, cache_key);
+                distinct_key_count += 1;
+            }
+        }
+
+        assert!(
+            distinct_key_count > sample_count / 2,
+            "random generation produced too few distinct keys"
+        );
+    }
+
+    #[test]
+    fn exhaustive_cache_key_matrix_no_hash_collisions_for_distinct_keys() {
+        let cache = build_cache_for_tests();
+
+        let methods = [
+            Method::GET,
+            Method::HEAD,
+            Method::POST,
+            Method::PUT,
+            Method::PATCH,
+            Method::DELETE,
+        ];
+
+        let paths = ["/resource", "/resource/v2", "/resource/deep/path"];
+        let queries = [
+            "", "?a=1", "?a=2", "?a=1&b=2", "?b=2&a=1", "?a=1&a=2", "?a=1&a=3", "?z=9",
+        ];
+
+        let accept_values = [None, Some("application/json"), Some("text/plain")];
+        let language_values = [None, Some("en-US"), Some("fr-FR")];
+        let content_type_values = [None, Some("application/json"), Some("application/xml")];
+        let authorization_values = [None, Some("Bearer alpha-token"), Some("Bearer beta-token")];
+        let api_key_values = [None, Some("alpha-api-key"), Some("beta-api-key")];
+
+        let mut hash_to_key: HashMap<u64, String> = HashMap::new();
+        let mut distinct_keys: HashSet<String> = HashSet::new();
+        let mut sample_count = 0usize;
+
+        for method in methods {
+            for path in paths {
+                for query in queries {
+                    for accept in accept_values {
+                        for accept_language in language_values {
+                            for content_type in content_type_values {
+                                for authorization in authorization_values {
+                                    for api_key in api_key_values {
+                                        sample_count += 1;
+
+                                        let url = format!("https://example.test{}{}", path, query);
+                                        let request = build_request(
+                                            method.clone(),
+                                            &url,
+                                            &[
+                                                ("accept", accept),
+                                                ("accept-language", accept_language),
+                                                ("content-type", content_type),
+                                                ("authorization", authorization),
+                                                ("x-api-key", api_key),
+                                            ],
+                                        );
+
+                                        let cache_key = cache.generate_cache_key(&request);
+                                        let hash = compute_hash(cache_key.as_bytes());
+
+                                        if let Some(existing_key) = hash_to_key.get(&hash) {
+                                            assert_eq!(
+                                                existing_key, &cache_key,
+                                                "hash collision detected for distinct cache keys"
+                                            );
+                                        } else {
+                                            hash_to_key.insert(hash, cache_key.clone());
+                                        }
+
+                                        distinct_keys.insert(cache_key);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        assert_eq!(sample_count, 34_992);
+        assert!(
+            distinct_keys.len() > 20_000,
+            "matrix generation produced too few distinct keys"
+        );
+    }
+
+    #[test]
+    fn cache_key_query_reordering_is_canonical_and_hash_stable() {
+        let cache = build_cache_for_tests();
+
+        let request_a = build_request(
+            Method::GET,
+            "https://example.test/resource?a=1&b=2",
+            &[("accept", Some("application/json"))],
+        );
+        let request_b = build_request(
+            Method::GET,
+            "https://example.test/resource?b=2&a=1",
+            &[("accept", Some("application/json"))],
+        );
+
+        let key_a = cache.generate_cache_key(&request_a);
+        let key_b = cache.generate_cache_key(&request_b);
+
+        assert_eq!(key_a, key_b);
+        assert_eq!(
+            compute_hash(key_a.as_bytes()),
+            compute_hash(key_b.as_bytes())
+        );
+    }
+
+    #[test]
+    fn cache_key_changes_for_each_response_affecting_dimension() {
+        let cache = build_cache_for_tests();
+
+        let base_request = build_request(
+            Method::GET,
+            "https://example.test/resource?a=1&b=2",
+            &[
+                ("accept", Some("application/json")),
+                ("accept-language", Some("en-US")),
+                ("content-type", Some("application/json")),
+                ("authorization", Some("Bearer alpha-token")),
+                ("x-api-key", Some("alpha-api-key")),
+            ],
+        );
+        let base_key = cache.generate_cache_key(&base_request);
+        let base_hash = compute_hash(base_key.as_bytes());
+
+        let variants = vec![
+            build_request(
+                Method::POST,
+                "https://example.test/resource?a=1&b=2",
+                &[
+                    ("accept", Some("application/json")),
+                    ("accept-language", Some("en-US")),
+                    ("content-type", Some("application/json")),
+                    ("authorization", Some("Bearer alpha-token")),
+                    ("x-api-key", Some("alpha-api-key")),
+                ],
+            ),
+            build_request(
+                Method::GET,
+                "https://example.test/resource/v2?a=1&b=2",
+                &[
+                    ("accept", Some("application/json")),
+                    ("accept-language", Some("en-US")),
+                    ("content-type", Some("application/json")),
+                    ("authorization", Some("Bearer alpha-token")),
+                    ("x-api-key", Some("alpha-api-key")),
+                ],
+            ),
+            build_request(
+                Method::GET,
+                "https://example.test/resource?a=99&b=2",
+                &[
+                    ("accept", Some("application/json")),
+                    ("accept-language", Some("en-US")),
+                    ("content-type", Some("application/json")),
+                    ("authorization", Some("Bearer alpha-token")),
+                    ("x-api-key", Some("alpha-api-key")),
+                ],
+            ),
+            build_request(
+                Method::GET,
+                "https://example.test/resource?a=1&b=2",
+                &[
+                    ("accept", Some("text/plain")),
+                    ("accept-language", Some("en-US")),
+                    ("content-type", Some("application/json")),
+                    ("authorization", Some("Bearer alpha-token")),
+                    ("x-api-key", Some("alpha-api-key")),
+                ],
+            ),
+            build_request(
+                Method::GET,
+                "https://example.test/resource?a=1&b=2",
+                &[
+                    ("accept", Some("application/json")),
+                    ("accept-language", Some("fr-FR")),
+                    ("content-type", Some("application/json")),
+                    ("authorization", Some("Bearer alpha-token")),
+                    ("x-api-key", Some("alpha-api-key")),
+                ],
+            ),
+            build_request(
+                Method::GET,
+                "https://example.test/resource?a=1&b=2",
+                &[
+                    ("accept", Some("application/json")),
+                    ("accept-language", Some("en-US")),
+                    ("content-type", Some("application/xml")),
+                    ("authorization", Some("Bearer alpha-token")),
+                    ("x-api-key", Some("alpha-api-key")),
+                ],
+            ),
+            build_request(
+                Method::GET,
+                "https://example.test/resource?a=1&b=2",
+                &[
+                    ("accept", Some("application/json")),
+                    ("accept-language", Some("en-US")),
+                    ("content-type", Some("application/json")),
+                    ("authorization", Some("Bearer beta-token")),
+                    ("x-api-key", Some("alpha-api-key")),
+                ],
+            ),
+            build_request(
+                Method::GET,
+                "https://example.test/resource?a=1&b=2",
+                &[
+                    ("accept", Some("application/json")),
+                    ("accept-language", Some("en-US")),
+                    ("content-type", Some("application/json")),
+                    ("authorization", Some("Bearer alpha-token")),
+                    ("x-api-key", Some("beta-api-key")),
+                ],
+            ),
+        ];
+
+        for variant in variants {
+            let variant_key = cache.generate_cache_key(&variant);
+            let variant_hash = compute_hash(variant_key.as_bytes());
+
+            assert_ne!(
+                variant_key, base_key,
+                "variant unexpectedly produced same key"
+            );
+            assert_ne!(
+                variant_hash, base_hash,
+                "variant unexpectedly produced same hash"
+            );
+        }
+    }
+
+    #[test]
+    #[ignore = "expensive: runs 100,000,000 samples"]
+    fn cache_key_hash_collision_stress_100_million() {
+        init_test_tracing();
+
+        let cache = build_cache_for_tests();
+
+        let samples = 100_000_000_u64;
+        let mut seen_hashes: HashSet<u64> = HashSet::new();
+        let started_at = Instant::now();
+
+        for index in 0..samples {
+            let request = build_unique_request_from_index(index);
+            let cache_key = cache.generate_cache_key(&request);
+            let hash = compute_hash(cache_key.as_bytes());
+
+            assert!(
+                seen_hashes.insert(hash),
+                "hash collision detected in stress test at sample index {} (hash={})",
+                index,
+                hash
+            );
+
+            let completed = index + 1;
+            if completed % 10_000 == 0 {
+                let elapsed = started_at.elapsed();
+                let pct = (completed as f64 / samples as f64) * 100.0;
+                tracing::info!(
+                    "stress progress: {}/{} ({:.4}%) elapsed={:?}",
+                    completed,
+                    samples,
+                    pct,
+                    elapsed
+                );
+            }
+        }
+
+        tracing::info!(
+            "stress complete: {} samples in {:?}",
+            samples,
+            started_at.elapsed()
+        );
+    }
+}
