@@ -562,23 +562,8 @@ mod tests {
     use rand::{RngExt, SeedableRng};
     use reqwest::Method;
     use std::collections::{HashMap, HashSet};
-    use std::sync::Once;
+    use std::time::{SystemTime, UNIX_EPOCH};
     use tempfile::TempDir;
-
-    #[allow(dead_code)]
-    fn init_test_tracing() {
-        static INIT: Once = Once::new();
-
-        INIT.call_once(|| {
-            let _ = tracing_subscriber::fmt()
-                .with_test_writer()
-                .with_env_filter(
-                    tracing_subscriber::EnvFilter::try_from_default_env()
-                        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
-                )
-                .try_init();
-        });
-    }
 
     fn build_request(method: Method, url: &str, headers: &[(&str, Option<&str>)]) -> Request {
         // Construct `reqwest::Request` directly rather than building a
@@ -608,78 +593,6 @@ mod tests {
         let temp_dir = TempDir::new().expect("failed to create temp dir");
         let cache_path = temp_dir.path().join("cache_key_matrix.bin");
         DriveCache::new(&cache_path, CachePolicy::default())
-    }
-
-    #[allow(dead_code)]
-    fn build_unique_request_from_index(index: u64) -> Request {
-        let methods = [
-            Method::GET,
-            Method::HEAD,
-            Method::POST,
-            Method::PUT,
-            Method::PATCH,
-            Method::DELETE,
-        ];
-
-        let method = methods[(index % methods.len() as u64) as usize].clone();
-        let path = format!("/resource/{}/{}/{}", index % 97, index % 503, index % 9973);
-
-        let query = format!(
-            "a={}&b={}&c={}&d={}",
-            index,
-            index.wrapping_mul(31),
-            index.rotate_left(7),
-            index ^ 0xA5A5_A5A5_A5A5_A5A5
-        );
-
-        let url = format!("https://example.test{}?{}", path, query);
-
-        let accept_values = ["application/json", "text/plain", "*/*"];
-        let language_values = ["en-US", "fr-FR", "es-ES", "de-DE"];
-        let content_type_values = ["application/json", "application/xml", "text/plain"];
-
-        let mut request = Request::new(
-            method,
-            reqwest::Url::parse(&url).expect("failed to parse stress URL"),
-        );
-
-        request.headers_mut().insert(
-            http::header::ACCEPT,
-            http::header::HeaderValue::from_str(
-                accept_values[(index % accept_values.len() as u64) as usize],
-            )
-            .expect("invalid accept header value"),
-        );
-        request.headers_mut().insert(
-            http::header::ACCEPT_LANGUAGE,
-            http::header::HeaderValue::from_str(
-                language_values[(index % language_values.len() as u64) as usize],
-            )
-            .expect("invalid accept-language header value"),
-        );
-        request.headers_mut().insert(
-            http::header::CONTENT_TYPE,
-            http::header::HeaderValue::from_str(
-                content_type_values[(index % content_type_values.len() as u64) as usize],
-            )
-            .expect("invalid content-type header value"),
-        );
-
-        let authorization_value = format!("Bearer token-{:016x}", index);
-        request.headers_mut().insert(
-            http::header::AUTHORIZATION,
-            http::header::HeaderValue::from_str(&authorization_value)
-                .expect("invalid authorization header value"),
-        );
-
-        let api_key_value = format!("api-key-{:016x}", index.rotate_right(11));
-        request.headers_mut().insert(
-            http::header::HeaderName::from_static("x-api-key"),
-            http::header::HeaderValue::from_str(&api_key_value)
-                .expect("invalid x-api-key header value"),
-        );
-
-        request
     }
 
     fn random_token(rng: &mut StdRng, min_len: usize, max_len: usize) -> String {
@@ -793,8 +706,34 @@ mod tests {
 
         let mut distinct_key_count = 0usize;
 
-        for _ in 0..sample_count {
-            let request = build_random_request(&mut random_generator);
+        // Seed one known key first so the equality-assert branch is exercised
+        // deterministically without relying on random hash collisions.
+        let duplicate_request = build_request(
+            Method::GET,
+            "https://example.test/duplicate?a=1&b=2",
+            &[("accept", Some("application/json"))],
+        );
+        let duplicate_key = cache.generate_cache_key(&duplicate_request);
+        let duplicate_hash = compute_hash(duplicate_key.as_bytes());
+        observed_hash_to_key.insert(duplicate_hash, duplicate_key.clone());
+        if let Some(existing_key) = observed_hash_to_key.get(&duplicate_hash) {
+            assert_eq!(existing_key, &duplicate_key);
+        }
+
+        for sample_index in 0..sample_count {
+            let request = if sample_index == 0 {
+                // Reuse the exact same request as the seeded entry so this
+                // loop deterministically hits the "hash already seen" branch.
+                // We are NOT expecting collisions between distinct keys.
+                // A distinct-key collision still fails the test via `assert_eq!`.
+                build_request(
+                    Method::GET,
+                    "https://example.test/duplicate?a=1&b=2",
+                    &[("accept", Some("application/json"))],
+                )
+            } else {
+                build_random_request(&mut random_generator)
+            };
 
             let cache_key = cache.generate_cache_key(&request);
             let hash = compute_hash(cache_key.as_bytes());
@@ -814,6 +753,150 @@ mod tests {
             distinct_key_count > sample_count / 2,
             "random generation produced too few distinct keys"
         );
+    }
+
+    #[tokio::test]
+    async fn is_cached_uses_default_ttl_when_respect_headers_is_disabled() {
+        let temp_dir = TempDir::new().expect("failed to create temp dir");
+        let cache_path = temp_dir.path().join("cache_default_ttl.bin");
+        let cache = DriveCache::new(
+            &cache_path,
+            CachePolicy {
+                default_ttl: Duration::from_secs(60),
+                respect_headers: false,
+                cache_status_override: None,
+            },
+        );
+
+        let request = build_request(
+            Method::GET,
+            "https://example.test/default-ttl",
+            &[("accept", Some("application/json"))],
+        );
+        let cache_key = cache.generate_cache_key(&request);
+        let cache_key_bytes = cache_key.as_bytes();
+
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("time went backwards")
+            .as_millis() as u64;
+
+        let cached = CachedResponse {
+            status: 200,
+            headers: vec![("cache-control".to_string(), b"max-age=0".to_vec())],
+            body: b"ok".to_vec(),
+            expiration_timestamp: now,
+        };
+
+        let serialized = bitcode::encode(&cached);
+        cache
+            .store
+            .as_ref()
+            .write(cache_key_bytes, serialized.as_slice())
+            .expect("write cached entry");
+
+        assert!(cache.is_cached(&request).await);
+    }
+
+    #[tokio::test]
+    async fn is_cached_evicts_entry_when_expired() {
+        let temp_dir = TempDir::new().expect("failed to create temp dir");
+        let cache_path = temp_dir.path().join("cache_expired_evict.bin");
+        let cache = DriveCache::new(
+            &cache_path,
+            CachePolicy {
+                default_ttl: Duration::from_millis(0),
+                respect_headers: false,
+                cache_status_override: None,
+            },
+        );
+
+        let request = build_request(
+            Method::GET,
+            "https://example.test/expired-entry",
+            &[("accept", Some("application/json"))],
+        );
+        let cache_key = cache.generate_cache_key(&request);
+        let cache_key_bytes = cache_key.as_bytes();
+
+        let cached = CachedResponse {
+            status: 200,
+            headers: Vec::new(),
+            body: b"stale".to_vec(),
+            expiration_timestamp: 0,
+        };
+
+        let serialized = bitcode::encode(&cached);
+        cache
+            .store
+            .as_ref()
+            .write(cache_key_bytes, serialized.as_slice())
+            .expect("write cached entry");
+
+        assert!(!cache.is_cached(&request).await);
+        let stored = cache
+            .store
+            .as_ref()
+            .read(cache_key_bytes)
+            .expect("read cache key after eviction");
+        assert!(stored.is_none(), "expired key should be evicted");
+    }
+
+    #[test]
+    fn extract_ttl_returns_default_when_header_respect_is_disabled() {
+        let policy = CachePolicy {
+            default_ttl: Duration::from_secs(321),
+            respect_headers: false,
+            cache_status_override: None,
+        };
+
+        let mut headers = HeaderMap::new();
+        headers.insert("cache-control", HeaderValue::from_static("max-age=1"));
+
+        assert_eq!(
+            DriveCache::extract_ttl(&headers, &policy),
+            policy.default_ttl
+        );
+    }
+
+    #[test]
+    fn extract_ttl_uses_cache_control_max_age_when_present() {
+        let policy = CachePolicy {
+            default_ttl: Duration::from_secs(321),
+            respect_headers: true,
+            cache_status_override: None,
+        };
+
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "cache-control",
+            HeaderValue::from_static("public, max-age=42"),
+        );
+
+        assert_eq!(
+            DriveCache::extract_ttl(&headers, &policy),
+            Duration::from_secs(42)
+        );
+    }
+
+    #[test]
+    fn extract_ttl_uses_expires_header_when_cache_control_missing() {
+        let policy = CachePolicy {
+            default_ttl: Duration::from_secs(600),
+            respect_headers: true,
+            cache_status_override: None,
+        };
+
+        let mut headers = HeaderMap::new();
+        let future = (Utc::now() + chrono::Duration::seconds(120)).to_rfc2822();
+        headers.insert(
+            "expires",
+            HeaderValue::from_str(&future).expect("expires header should be valid"),
+        );
+
+        let ttl = DriveCache::extract_ttl(&headers, &policy);
+        assert!(ttl > Duration::from_secs(0));
+        assert!(ttl < policy.default_ttl);
     }
 
     #[test]
@@ -1060,6 +1143,80 @@ mod tests {
     - End-to-end runtime was several hours, even in `--release` mode.
     - A Rayon parallelization attempt did not produce a meaningful speedup for
       this workload, so the test is commented out to keep normal test cycles fast.
+
+        // Kept as commented code because it is only used by the disabled stress
+        // test below. If we re-enable that test in the future, this helper can be
+        // uncommented together with it.
+        // fn build_unique_request_from_index(index: u64) -> Request {
+        //     let methods = [
+        //         Method::GET,
+        //         Method::HEAD,
+        //         Method::POST,
+        //         Method::PUT,
+        //         Method::PATCH,
+        //         Method::DELETE,
+        //     ];
+        //
+        //     let method = methods[(index % methods.len() as u64) as usize].clone();
+        //     let path = format!("/resource/{}/{}/{}", index % 97, index % 503, index % 9973);
+        //
+        //     let query = format!(
+        //         "a={}&b={}&c={}&d={}",
+        //         index,
+        //         index.wrapping_mul(31),
+        //         index.rotate_left(7),
+        //         index ^ 0xA5A5_A5A5_A5A5_A5A5
+        //     );
+        //
+        //     let url = format!("https://example.test{}?{}", path, query);
+        //
+        //     let accept_values = ["application/json", "text/plain", "STAR_SLASH_STAR"];
+        //     let language_values = ["en-US", "fr-FR", "es-ES", "de-DE"];
+        //     let content_type_values = ["application/json", "application/xml", "text/plain"];
+        //
+        //     let mut request = Request::new(
+        //         method,
+        //         reqwest::Url::parse(&url).expect("failed to parse stress URL"),
+        //     );
+        //
+        //     request.headers_mut().insert(
+        //         http::header::ACCEPT,
+        //         http::header::HeaderValue::from_str(
+        //             accept_values[(index % accept_values.len() as u64) as usize],
+        //         )
+        //         .expect("invalid accept header value"),
+        //     );
+        //     request.headers_mut().insert(
+        //         http::header::ACCEPT_LANGUAGE,
+        //         http::header::HeaderValue::from_str(
+        //             language_values[(index % language_values.len() as u64) as usize],
+        //         )
+        //         .expect("invalid accept-language header value"),
+        //     );
+        //     request.headers_mut().insert(
+        //         http::header::CONTENT_TYPE,
+        //         http::header::HeaderValue::from_str(
+        //             content_type_values[(index % content_type_values.len() as u64) as usize],
+        //         )
+        //         .expect("invalid content-type header value"),
+        //     );
+        //
+        //     let authorization_value = format!("Bearer token-{:016x}", index);
+        //     request.headers_mut().insert(
+        //         http::header::AUTHORIZATION,
+        //         http::header::HeaderValue::from_str(&authorization_value)
+        //             .expect("invalid authorization header value"),
+        //     );
+        //
+        //     let api_key_value = format!("api-key-{:016x}", index.rotate_right(11));
+        //     request.headers_mut().insert(
+        //         http::header::HeaderName::from_static("x-api-key"),
+        //         http::header::HeaderValue::from_str(&api_key_value)
+        //             .expect("invalid x-api-key header value"),
+        //     );
+        //
+        //     request
+        // }
 
     #[test]
     #[ignore = "expensive: runs 100,000,000 samples"]

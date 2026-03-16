@@ -251,3 +251,48 @@ impl Middleware for DriveThrottleBackoff {
         next.run(req, extensions).await
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use reqwest_middleware::ClientBuilder;
+
+    #[test]
+    fn throttle_policy_default_values_are_stable() {
+        let policy = ThrottlePolicy::default();
+
+        assert_eq!(policy.base_delay_ms, 500);
+        assert_eq!(policy.adaptive_jitter_ms, 250);
+        assert_eq!(policy.max_concurrent, 5);
+        assert_eq!(policy.max_retries, 3);
+    }
+
+    #[tokio::test]
+    async fn closed_semaphore_returns_middleware_error() {
+        let throttle = Arc::new(DriveThrottleBackoff::without_cache(ThrottlePolicy {
+            base_delay_ms: 1,
+            adaptive_jitter_ms: 0,
+            max_concurrent: 1,
+            max_retries: 0,
+        }));
+
+        // Force semaphore acquire to fail so we cover the map_err path.
+        throttle.semaphore.close();
+
+        let client = ClientBuilder::new(reqwest::Client::new())
+            .with_arc(throttle)
+            .build();
+
+        let error = client
+            .get("https://example.test/closed-semaphore")
+            .send()
+            .await
+            .expect_err("closed semaphore should return middleware error");
+
+        assert!(
+            matches!(error, reqwest_middleware::Error::Middleware(_)),
+            "expected middleware error variant, got: {:?}",
+            error
+        );
+    }
+}
