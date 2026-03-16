@@ -10,21 +10,37 @@ license = "Apache-2.0"
 categories = ["web-programming", "network-programming", "caching", "asynchronous"]
 keywords = ["reqwest", "middleware", "cache", "throttle", "backoff"]
 
-[dependencies]
+[workspace.dependencies]
 async-trait = "0.1.89"
 bitcode = "0.6.9"
 bytes = "1.11.1"
-cache-manager = { version = "0.3.1", features = ["process-scoped-cache"] }
+cache-manager = { version = "0.3.1" }
 chrono = "0.4.44"
 http = "1.4.0"
 rand = "0.10.0"
 reqwest = "0.13.2"
 reqwest-middleware = "0.5.1"
 simd-r-drive = "0.15.5-alpha"
+tempfile = "3.27.0"
 tokio = "1.50.0"
 tracing = "0.1.44"
+wiremock = "0.6.5"
+
+[dependencies]
+async-trait.workspace = true
+bitcode.workspace = true
+bytes.workspace = true
+cache-manager = { workspace = true, features = ["process-scoped-cache"] }
+chrono.workspace = true
+http.workspace = true
+rand.workspace = true
+reqwest.workspace = true
+reqwest-middleware.workspace = true
+simd-r-drive.workspace = true
+tokio.workspace = true
+tracing.workspace = true
 
 [dev-dependencies]
-tempfile = "3.27.0"
-tokio = { version = "1.50.0", features = ["rt-multi-thread"] }
-wiremock = "0.6.5"
+tempfile.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread"] }
+wiremock.workspace = true
