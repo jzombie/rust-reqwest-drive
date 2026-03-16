@@ -172,15 +172,16 @@ impl Middleware for DriveThrottleBackoff {
 
         let cache_key = format!("{} {}", req.method(), &url);
 
-        if !bypass_cache && !bust_cache {
-            if let Some(cache) = &self.cache {
-                if cache.is_cached(&req).await {
-                    eprintln!("Using cache for: {}", &cache_key);
+        if !bypass_cache
+            && !bust_cache
+            && let Some(cache) = &self.cache
+        {
+            if cache.is_cached(&req).await {
+                eprintln!("Using cache for: {}", &cache_key);
 
-                    return next.run(req, extensions).await;
-                } else {
-                    eprintln!("No cache found for: {}", &cache_key);
-                }
+                return next.run(req, extensions).await;
+            } else {
+                eprintln!("No cache found for: {}", &cache_key);
             }
         }
 

@@ -21,6 +21,9 @@ Note: This is not **WASM** compatible.
 - **Efficient single-file caching**  
   - Uses **SIMD acceleration** for fast reads/writes.
   - Supports **header-based TTLs** or custom expiration policies.
+    - Normalizes query parameter order for stable cache identity.
+    - Varies cache entries by key request headers (e.g. `accept`, `accept-language`, `content-type`).
+    - Hashes sensitive header values (like `authorization`/`x-api-key`) before key material is constructed.
     - Supports per-request cache controls:
         - **Bypass** cache (`CacheBypass`) for one-off uncached reads.
         - **Bust & refresh** cache (`CacheBust`) to force a fresh value and update stored cache.
@@ -237,7 +240,7 @@ async fn main() {
     // Bypass this particular request
     request.extensions().insert(CacheBypass(true));
 
-    // This request skips cache read/write, but still uses throttle/backoff.
+    // This request skips cache read/write, but still uses throttle/backoff
     let response = request.send().await.unwrap();
     println!("Response status: {}", response.status());
 }

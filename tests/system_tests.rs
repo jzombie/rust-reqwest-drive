@@ -54,6 +54,120 @@ async fn test_cache_middleware() {
     assert_eq!(second_body, "cached response");
 }
 
+#[tokio::test]
+async fn test_cache_key_normalizes_query_param_order() {
+    let temp_dir = TempDir::new("cache_query_normalization_test").unwrap();
+    let cache_path = temp_dir.path().join("cache_query_normalization.bin");
+
+    let mock_server = MockServer::start().await;
+
+    Mock::given(wiremock::matchers::method("GET"))
+        .respond_with(ResponseTemplate::new(200).set_body_string("query-normalized"))
+        .expect(1)
+        .mount(&mock_server)
+        .await;
+
+    let cache = init_cache(&cache_path, CachePolicy::default());
+
+    let client = ClientBuilder::new(reqwest::Client::new())
+        .with_arc(cache)
+        .build();
+
+    let url_a = format!("{}/query?a=1&b=2", mock_server.uri());
+    let url_b = format!("{}/query?b=2&a=1", mock_server.uri());
+
+    let first = client
+        .get(&url_a)
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+    let second = client
+        .get(&url_b)
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+
+    assert_eq!(first, "query-normalized");
+    assert_eq!(second, "query-normalized");
+}
+
+#[tokio::test]
+async fn test_cache_key_varies_on_accept_language_header() {
+    let temp_dir = TempDir::new("cache_vary_header_test").unwrap();
+    let cache_path = temp_dir.path().join("cache_vary_header.bin");
+
+    let mock_server = MockServer::start().await;
+
+    let request_counter = Arc::new(AtomicUsize::new(0));
+    let counter_clone = Arc::clone(&request_counter);
+
+    Mock::given(wiremock::matchers::method("GET"))
+        .respond_with(move |req: &wiremock::Request| {
+            let _ = counter_clone.fetch_add(1, Ordering::SeqCst);
+            let lang = req
+                .headers
+                .get("accept-language")
+                .map(|v| String::from_utf8_lossy(v.as_bytes()).to_string())
+                .unwrap_or_else(|| "none".to_string());
+
+            ResponseTemplate::new(200)
+                .set_body_string(format!("lang={}", lang))
+                .insert_header("Cache-Control", "max-age=60")
+        })
+        .expect(2)
+        .mount(&mock_server)
+        .await;
+
+    let cache = init_cache(&cache_path, CachePolicy::default());
+
+    let client = ClientBuilder::new(reqwest::Client::new())
+        .with_arc(cache)
+        .build();
+
+    let url = format!("{}/vary", mock_server.uri());
+
+    let en = client
+        .get(&url)
+        .header("accept-language", "en-US")
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+
+    let fr = client
+        .get(&url)
+        .header("accept-language", "fr-FR")
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+
+    let en_cached = client
+        .get(&url)
+        .header("accept-language", "en-US")
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+
+    assert_eq!(en, "lang=en-US");
+    assert_eq!(fr, "lang=fr-FR");
+    assert_eq!(en_cached, "lang=en-US");
+    assert_eq!(request_counter.load(Ordering::SeqCst), 2);
+}
+
 /// Test throttling middleware with retries
 #[tokio::test]
 async fn test_throttling_behavior() {
@@ -799,8 +913,7 @@ async fn test_throttling_respects_max_concurrent() {
                 let body = response.text().await.unwrap();
                 assert_eq!(body, "throttled response");
 
-                let elapsed_time = start_time.elapsed();
-                elapsed_time
+                start_time.elapsed()
             })
         })
         .collect();

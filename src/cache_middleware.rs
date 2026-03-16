@@ -6,8 +6,8 @@ use chrono::{DateTime, Utc};
 use http::{Extensions, HeaderMap, HeaderValue, StatusCode};
 use reqwest::{Request, Response};
 use reqwest_middleware::{Middleware, Next, Result};
-use simd_r_drive::DataStore;
 use simd_r_drive::traits::{DataStoreReader, DataStoreWriter};
+use simd_r_drive::{DataStore, compute_hash};
 use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH}; // For parsing `Expires` headers
@@ -191,10 +191,10 @@ impl DriveCache {
                     // Convert headers back to HeaderMap to extract TTL
                     let mut headers = HeaderMap::new();
                     for (k, v) in cached.headers.iter() {
-                        if let Ok(header_name) = k.parse::<http::HeaderName>() {
-                            if let Ok(header_value) = HeaderValue::from_bytes(v) {
-                                headers.insert(header_name, header_value);
-                            }
+                        if let Ok(header_name) = k.parse::<http::HeaderName>()
+                            && let Ok(header_value) = HeaderValue::from_bytes(v)
+                        {
+                            headers.insert(header_name, header_value);
                         }
                     }
                     Self::extract_ttl(&headers, &self.policy)
@@ -232,9 +232,15 @@ impl DriveCache {
         false
     }
 
-    /// Generates a cache key based on the request method, URL, and relevant headers.
+    /// Generates a cache key based on request method, canonicalized URL, and relevant headers.
     ///
     /// The generated key is used to uniquely identify cached responses.
+    ///
+    /// Key strategy:
+    /// - Includes request method.
+    /// - Canonicalizes URL query parameters by sorting them by key/value.
+    /// - Includes selected representation-affecting headers.
+    /// - Hashes sensitive header values (e.g. Authorization) before adding them to key material.
     ///
     /// # Arguments
     ///
@@ -245,18 +251,64 @@ impl DriveCache {
     /// A string representing the cache key.
     fn generate_cache_key(&self, req: &Request) -> String {
         let method = req.method();
-        let url = req.url().as_str();
+        let url = Self::canonicalize_url(req.url());
         let headers = req.headers();
 
-        let relevant_headers = ["accept", "authorization"];
+        let relevant_headers = [
+            "accept",
+            "accept-language",
+            "content-type",
+            "authorization",
+            "x-api-key",
+        ];
+
         let header_string = relevant_headers
             .iter()
-            .filter_map(|h| headers.get(*h))
-            .map(|v| v.to_str().unwrap_or_default())
+            .filter_map(|name| {
+                headers.get(*name).map(|value| {
+                    let value_str = if Self::is_sensitive_header(name) {
+                        format!("h:{:016x}", compute_hash(value.as_bytes()))
+                    } else {
+                        value.to_str().unwrap_or_default().to_string()
+                    };
+
+                    format!("{}={}", name, value_str)
+                })
+            })
             .collect::<Vec<_>>()
-            .join(",");
+            .join("&");
 
         format!("{} {} {}", method, url, header_string)
+    }
+
+    fn canonicalize_url(url: &reqwest::Url) -> String {
+        let mut normalized = url.clone();
+
+        let mut query_pairs = url
+            .query_pairs()
+            .map(|(k, v)| (k.into_owned(), v.into_owned()))
+            .collect::<Vec<_>>();
+
+        if !query_pairs.is_empty() {
+            query_pairs.sort_by(|(k1, v1), (k2, v2)| k1.cmp(k2).then_with(|| v1.cmp(v2)));
+
+            {
+                let mut serializer = normalized.query_pairs_mut();
+                serializer.clear();
+                for (key, value) in query_pairs.iter() {
+                    serializer.append_pair(key, value);
+                }
+            }
+        }
+
+        normalized.to_string()
+    }
+
+    fn is_sensitive_header(name: &str) -> bool {
+        matches!(
+            name,
+            "authorization" | "proxy-authorization" | "cookie" | "x-api-key"
+        )
     }
 
     /// Extracts the TTL from HTTP headers or falls back to the default TTL.
@@ -274,35 +326,27 @@ impl DriveCache {
             return policy.default_ttl;
         }
 
-        // Check `Cache-Control: max-age=N`
-        if let Some(cache_control) = headers.get("cache-control") {
-            if let Ok(cache_control) = cache_control.to_str() {
-                for directive in cache_control.split(',') {
-                    if let Some(max_age) = directive.trim().strip_prefix("max-age=") {
-                        if let Ok(seconds) = max_age.parse::<u64>() {
-                            return Duration::from_secs(seconds);
-                        }
-                    }
+        if let Some(cache_control) = headers.get("cache-control")
+            && let Ok(cache_control) = cache_control.to_str()
+        {
+            for directive in cache_control.split(',') {
+                if let Some(max_age) = directive.trim().strip_prefix("max-age=")
+                    && let Ok(seconds) = max_age.parse::<u64>()
+                {
+                    return Duration::from_secs(seconds);
                 }
             }
         }
 
-        // Check `Expires`
-        if let Some(expires) = headers.get("expires") {
-            if let Ok(expires) = expires.to_str() {
-                if let Ok(expiry_time) = DateTime::parse_from_rfc2822(expires) {
-                    if let Some(duration) =
-                        expiry_time.timestamp().checked_sub(Utc::now().timestamp())
-                    {
-                        if duration > 0 {
-                            return Duration::from_secs(duration as u64);
-                        }
-                    }
-                }
-            }
+        if let Some(expires) = headers.get("expires")
+            && let Ok(expires) = expires.to_str()
+            && let Ok(expiry_time) = DateTime::parse_from_rfc2822(expires)
+            && let Some(duration) = expiry_time.timestamp().checked_sub(Utc::now().timestamp())
+            && duration > 0
+        {
+            return Duration::from_secs(duration as u64);
         }
 
-        // Fallback to default TTL
         policy.default_ttl
     }
 }
@@ -358,23 +402,22 @@ impl Middleware for DriveCache {
         let cache_key_bytes = cache_key.as_bytes();
 
         if req.method() == "GET" || req.method() == "HEAD" {
-            // Use is_cached() to determine if the cache should be used
-            if !bypass_cache && !bust_cache && self.is_cached(&req).await {
-                // let store = self.store.read().await;
-                if let Ok(Some(entry_handle)) = store.read(cache_key_bytes) {
-                    if let Ok(cached) = bitcode::decode::<CachedResponse>(entry_handle.as_slice()) {
-                        let mut headers = HeaderMap::new();
-                        for (k, v) in cached.headers {
-                            if let Ok(header_name) = k.parse::<http::HeaderName>() {
-                                if let Ok(header_value) = HeaderValue::from_bytes(&v) {
-                                    headers.insert(header_name, header_value);
-                                }
-                            }
-                        }
-                        let status = StatusCode::from_u16(cached.status).unwrap_or(StatusCode::OK);
-                        return Ok(build_response(status, headers, Bytes::from(cached.body)));
+            if !bypass_cache
+                && !bust_cache
+                && self.is_cached(&req).await
+                && let Ok(Some(entry_handle)) = store.read(cache_key_bytes)
+                && let Ok(cached) = bitcode::decode::<CachedResponse>(entry_handle.as_slice())
+            {
+                let mut headers = HeaderMap::new();
+                for (k, v) in cached.headers {
+                    if let Ok(header_name) = k.parse::<http::HeaderName>()
+                        && let Ok(header_value) = HeaderValue::from_bytes(&v)
+                    {
+                        headers.insert(header_name, header_value);
                     }
                 }
+                let status = StatusCode::from_u16(cached.status).unwrap_or(StatusCode::OK);
+                return Ok(build_response(status, headers, Bytes::from(cached.body)));
             }
 
             let response = next.run(req, extensions).await?;
@@ -389,12 +432,11 @@ impl Middleware for DriveCache {
                 .as_millis() as u64
                 + ttl.as_millis() as u64;
 
-            let body_clone = body.clone(); // Fix: Clone before moving
+            let body_clone = body.clone();
 
-            // Determine whether to cache the response
             let should_cache = match &self.policy.cache_status_override {
-                Some(status_codes) => status_codes.contains(&status.as_u16()), // Use the override
-                None => status.is_success(), // Default: Cache only success responses (2xx)
+                Some(status_codes) => status_codes.contains(&status.as_u16()),
+                None => status.is_success(),
             };
 
             if should_cache && !bypass_cache {
@@ -404,16 +446,12 @@ impl Middleware for DriveCache {
                         .iter()
                         .map(|(k, v)| (k.to_string(), v.as_bytes().to_vec()))
                         .collect(),
-                    body, // Move the original body here
+                    body,
                     expiration_timestamp,
                 });
 
-                {
-                    let store = self.store.as_ref();
-
-                    eprintln!("Writing cache with key: {}", cache_key);
-                    store.write(cache_key_bytes, serialized.as_slice()).ok();
-                }
+                eprintln!("Writing cache with key: {}", cache_key);
+                store.write(cache_key_bytes, serialized.as_slice()).ok();
             }
 
             return Ok(build_response(status, headers, Bytes::from(body_clone)));
