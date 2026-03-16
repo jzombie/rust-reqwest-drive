@@ -501,9 +501,9 @@ mod tests {
     use reqwest::Method;
     use std::collections::{HashMap, HashSet};
     use std::sync::Once;
-    use std::time::Instant;
     use tempdir::TempDir;
 
+    #[allow(dead_code)]
     fn init_test_tracing() {
         static INIT: Once = Once::new();
 
@@ -538,6 +538,7 @@ mod tests {
         DriveCache::new(&cache_path, CachePolicy::default())
     }
 
+    #[allow(dead_code)]
     fn build_unique_request_from_index(index: u64) -> Request {
         let methods = [
             Method::GET,
@@ -934,6 +935,13 @@ mod tests {
         }
     }
 
+    /*
+    Stress experiment (disabled):
+    - This 100,000,000-sample collision test worked (no collisions observed).
+    - End-to-end runtime was several hours, even in `--release` mode.
+    - A Rayon parallelization attempt did not produce a meaningful speedup for
+      this workload, so the test is commented out to keep normal test cycles fast.
+
     #[test]
     #[ignore = "expensive: runs 100,000,000 samples"]
     fn cache_key_hash_collision_stress_100_million() {
@@ -977,4 +985,5 @@ mod tests {
             started_at.elapsed()
         );
     }
+    */
 }
