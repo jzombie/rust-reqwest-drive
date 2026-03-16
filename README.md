@@ -367,6 +367,22 @@ async fn main() {
 }
 ```
 
+### Using re-exported `reqwest`
+
+`reqwest-drive` re-exports `reqwest` and generally tracks a compatible upstream
+`reqwest` release to reduce version ambiguity, while still allowing independent
+updates when needed. Import it as `reqwest_drive::reqwest`.
+
+> Note: This will completely bypass all throttling and caching if the middleware is not attached.
+
+```rust
+use reqwest_drive::reqwest;
+
+let client = reqwest::Client::new();
+let request = client.get("https://httpbin.org/get").build().unwrap();
+assert_eq!(request.url().as_str(), "https://httpbin.org/get");
+```
+
 ## Why `reqwest-drive`?
 
 ✅ **Faster than traditional disk-based caches** (memory-mapped, single-file storage container with SIMD acceleration for queries).  

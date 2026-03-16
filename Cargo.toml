@@ -1,6 +1,6 @@
 [package]
 name = "reqwest-drive"
-# Note: Mirror reqwest version to avoid ambiguity
+# Generally tracks a compatible upstream `reqwest` release to reduce version ambiguity, while still allowing independent updates when needed
 version = "0.13.2-alpha"
 authors = ["Jeremy Harris <jeremy.harris@zenosmosis.com>"]
 description = "High-performance caching, throttling, and backoff middleware for reqwest, with a single-file storage container."
