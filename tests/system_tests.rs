@@ -16,6 +16,14 @@ use tokio::sync::{Barrier, mpsc};
 use tokio::time::{Instant, sleep};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
+// Tests interact with filesystem discovery for process-scoped caches (the
+// crate discovers a `.cache` directory under the current working directory).
+// To avoid polluting the repository workspace during tests (or doctests) we
+// temporarily change the process working directory into a `tempfile::TempDir`.
+//
+// `CwdGuard` provides an RAII-style swap of the current working directory and
+// holds a global `Mutex` to serialize concurrent tests which might otherwise
+// race when changing the process-wide working directory.
 fn cwd_test_lock() -> &'static Mutex<()> {
     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
     LOCK.get_or_init(|| Mutex::new(()))
@@ -27,6 +35,9 @@ struct CwdGuard {
 }
 
 impl CwdGuard {
+    /// Atomically swap the process CWD to `path` and return a guard that will
+    /// restore the previous CWD on drop. The global lock prevents multiple
+    /// tests from changing the CWD at the same time which would produce races.
     fn swap_to(path: &Path) -> std::io::Result<Self> {
         let cwd_lock_guard = cwd_test_lock().lock().expect("acquire cwd test lock");
         let previous = env::current_dir()?;
@@ -40,6 +51,7 @@ impl CwdGuard {
 
 impl Drop for CwdGuard {
     fn drop(&mut self) {
+        // Best-effort restore; tests should not panic if restoring fails.
         let _ = env::set_current_dir(&self.previous);
     }
 }
@@ -88,6 +100,9 @@ async fn test_cache_middleware() {
 #[tokio::test]
 async fn test_init_cache_process_scoped() {
     let temp_root = TempDir::new().expect("create tempfile root");
+    // Swap the process CWD into a temp dir so the process-scoped cache
+    // discovery (which looks for a `.cache` folder under CWD) writes into
+    // `temp_root` instead of the repository workspace.
     let _cwd_guard = CwdGuard::swap_to(temp_root.path()).expect("set cwd to tempfile root");
 
     let mock_server = MockServer::start().await;

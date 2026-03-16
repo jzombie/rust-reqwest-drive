@@ -569,6 +569,12 @@ mod tests {
     // These two collision tests are consistently much slower on GitHub-hosted Ubuntu
     // runners than on macOS/Windows. Keep full workload everywhere else and
     // reduce only in Linux CI to stabilize pipeline runtime.
+    //
+    // Rationale:
+    // - GitHub-hosted Ubuntu runners have shown noticeably higher overhead
+    //   for many small allocations and for creating `reqwest::Client` repeatedly
+    //   inside tight loops. To avoid flakiness and long CI times we only apply
+    //   the reduced workload when running in CI on Linux.
     fn is_ci_slow_environment() -> bool {
         let is_ci = env::var("CI")
             .map(|value| value == "1" || value.eq_ignore_ascii_case("true"))
@@ -596,17 +602,27 @@ mod tests {
     }
 
     fn build_request(method: Method, url: &str, headers: &[(&str, Option<&str>)]) -> Request {
-        let mut request_builder = reqwest::Client::new().request(method, url);
+        // Construct `reqwest::Request` directly rather than building a
+        // `reqwest::Client` per-iteration. Creating a `Client` repeatedly in
+        // tight loops was the dominant cost on some CI runners; building the
+        // `Request` directly avoids that overhead while remaining functionally
+        // equivalent for these key-generation tests.
+        let mut request = Request::new(
+            method,
+            reqwest::Url::parse(url).expect("failed to parse request URL"),
+        );
 
         for (name, value) in headers {
             if let Some(value) = value {
-                request_builder = request_builder.header(*name, *value);
+                let header_name = http::header::HeaderName::from_bytes(name.as_bytes())
+                    .expect("invalid header name");
+                let header_value =
+                    http::header::HeaderValue::from_str(value).expect("invalid header value");
+                request.headers_mut().insert(header_name, header_value);
             }
         }
 
-        request_builder
-            .build()
-            .expect("failed to build matrix request")
+        request
     }
 
     fn build_cache_for_tests() -> DriveCache {
@@ -643,29 +659,48 @@ mod tests {
         let language_values = ["en-US", "fr-FR", "es-ES", "de-DE"];
         let content_type_values = ["application/json", "application/xml", "text/plain"];
 
-        let mut request_builder = reqwest::Client::new().request(method, url);
-        request_builder = request_builder.header(
-            "accept",
-            accept_values[(index % accept_values.len() as u64) as usize],
+        let mut request = Request::new(
+            method,
+            reqwest::Url::parse(&url).expect("failed to parse stress URL"),
         );
-        request_builder = request_builder.header(
-            "accept-language",
-            language_values[(index % language_values.len() as u64) as usize],
+
+        request.headers_mut().insert(
+            http::header::ACCEPT,
+            http::header::HeaderValue::from_str(
+                accept_values[(index % accept_values.len() as u64) as usize],
+            )
+            .expect("invalid accept header value"),
         );
-        request_builder = request_builder.header(
-            "content-type",
-            content_type_values[(index % content_type_values.len() as u64) as usize],
+        request.headers_mut().insert(
+            http::header::ACCEPT_LANGUAGE,
+            http::header::HeaderValue::from_str(
+                language_values[(index % language_values.len() as u64) as usize],
+            )
+            .expect("invalid accept-language header value"),
+        );
+        request.headers_mut().insert(
+            http::header::CONTENT_TYPE,
+            http::header::HeaderValue::from_str(
+                content_type_values[(index % content_type_values.len() as u64) as usize],
+            )
+            .expect("invalid content-type header value"),
         );
 
         let authorization_value = format!("Bearer token-{:016x}", index);
-        request_builder = request_builder.header("authorization", authorization_value);
+        request.headers_mut().insert(
+            http::header::AUTHORIZATION,
+            http::header::HeaderValue::from_str(&authorization_value)
+                .expect("invalid authorization header value"),
+        );
 
         let api_key_value = format!("api-key-{:016x}", index.rotate_right(11));
-        request_builder = request_builder.header("x-api-key", api_key_value);
+        request.headers_mut().insert(
+            http::header::HeaderName::from_static("x-api-key"),
+            http::header::HeaderValue::from_str(&api_key_value)
+                .expect("invalid x-api-key header value"),
+        );
 
-        request_builder
-            .build()
-            .expect("failed to build stress request")
+        request
     }
 
     fn random_token(rng: &mut StdRng, min_len: usize, max_len: usize) -> String {
@@ -713,39 +748,57 @@ mod tests {
             }
         }
 
-        let mut request_builder = reqwest::Client::new().request(method, url);
+        let mut request = Request::new(
+            method,
+            reqwest::Url::parse(&url).expect("failed to parse randomized URL"),
+        );
 
         if rng.random::<bool>() {
             let accept_values = ["application/json", "text/plain", "*/*"];
-            request_builder =
-                request_builder.header("accept", accept_values[rng.random_range(0..3)]);
+            request.headers_mut().insert(
+                http::header::ACCEPT,
+                http::header::HeaderValue::from_str(accept_values[rng.random_range(0..3)])
+                    .expect("invalid accept header value"),
+            );
         }
 
         if rng.random::<bool>() {
             let language_values = ["en-US", "fr-FR", "es-ES", "de-DE"];
-            request_builder =
-                request_builder.header("accept-language", language_values[rng.random_range(0..4)]);
+            request.headers_mut().insert(
+                http::header::ACCEPT_LANGUAGE,
+                http::header::HeaderValue::from_str(language_values[rng.random_range(0..4)])
+                    .expect("invalid accept-language header value"),
+            );
         }
 
         if rng.random::<bool>() {
             let content_type_values = ["application/json", "application/xml", "text/plain"];
-            request_builder =
-                request_builder.header("content-type", content_type_values[rng.random_range(0..3)]);
+            request.headers_mut().insert(
+                http::header::CONTENT_TYPE,
+                http::header::HeaderValue::from_str(content_type_values[rng.random_range(0..3)])
+                    .expect("invalid content-type header value"),
+            );
         }
 
         if rng.random::<bool>() {
             let authorization_value = format!("Bearer {}", random_token(rng, 16, 48));
-            request_builder = request_builder.header("authorization", authorization_value);
+            request.headers_mut().insert(
+                http::header::AUTHORIZATION,
+                http::header::HeaderValue::from_str(&authorization_value)
+                    .expect("invalid authorization header value"),
+            );
         }
 
         if rng.random::<bool>() {
             let api_key_value = random_token(rng, 12, 32);
-            request_builder = request_builder.header("x-api-key", api_key_value);
+            request.headers_mut().insert(
+                http::header::HeaderName::from_static("x-api-key"),
+                http::header::HeaderValue::from_str(&api_key_value)
+                    .expect("invalid x-api-key header value"),
+            );
         }
 
-        request_builder
-            .build()
-            .expect("failed to build test request")
+        request
     }
 
     #[test]
