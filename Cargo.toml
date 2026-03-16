@@ -14,6 +14,7 @@ keywords = ["reqwest", "middleware", "cache", "throttle", "backoff"]
 async-trait = "0.1.89"
 bitcode = "0.6.9"
 bytes = "1.11.1"
+cache-manager = { version = "0.3.1", features = ["process-scoped-cache"] }
 chrono = "0.4.44"
 http = "1.4.0"
 rand = "0.10.0"

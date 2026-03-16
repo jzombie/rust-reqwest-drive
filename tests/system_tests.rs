@@ -1,17 +1,49 @@
 use reqwest_drive::{
-    CacheBust, CacheBypass, CachePolicy, ThrottlePolicy, init_cache, init_cache_with_drive,
+    CacheBust, CacheBypass, CachePolicy, ThrottlePolicy, init_cache, init_cache_process_scoped,
+    init_cache_process_scoped_with_throttle, init_cache_with_drive,
     init_cache_with_drive_and_throttle, init_cache_with_throttle,
     init_client_with_cache_and_throttle, init_throttle,
 };
 use reqwest_middleware::ClientBuilder;
 use simd_r_drive::DataStore;
-use std::sync::Arc;
+use std::env;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::time::Duration;
 use tempdir::TempDir;
+use tempfile::TempDir as TempFileTempDir;
 use tokio::sync::{Barrier, mpsc};
 use tokio::time::{Instant, sleep};
 use wiremock::{Mock, MockServer, ResponseTemplate};
+
+fn cwd_test_lock() -> &'static Mutex<()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+}
+
+struct CwdGuard {
+    previous: PathBuf,
+    _cwd_lock: MutexGuard<'static, ()>,
+}
+
+impl CwdGuard {
+    fn swap_to(path: &Path) -> std::io::Result<Self> {
+        let cwd_lock_guard = cwd_test_lock().lock().expect("acquire cwd test lock");
+        let previous = env::current_dir()?;
+        env::set_current_dir(path)?;
+        Ok(Self {
+            previous,
+            _cwd_lock: cwd_lock_guard,
+        })
+    }
+}
+
+impl Drop for CwdGuard {
+    fn drop(&mut self) {
+        let _ = env::set_current_dir(&self.previous);
+    }
+}
 
 /// Test cache-only middleware
 #[tokio::test]
@@ -52,6 +84,87 @@ async fn test_cache_middleware() {
 
     // Ensure second request is served from cache (mock server should not be hit again)
     assert_eq!(second_body, "cached response");
+}
+
+#[tokio::test]
+async fn test_init_cache_process_scoped() {
+    let temp_root = TempFileTempDir::new().expect("create tempfile root");
+    let _cwd_guard = CwdGuard::swap_to(temp_root.path()).expect("set cwd to tempfile root");
+
+    let mock_server = MockServer::start().await;
+
+    Mock::given(wiremock::matchers::method("GET"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_string("process scoped cache")
+                .insert_header("Cache-Control", "max-age=60"),
+        )
+        .expect(1)
+        .mount(&mock_server)
+        .await;
+
+    let cache = init_cache_process_scoped(CachePolicy::default())
+        .expect("failed to initialize process-scoped cache");
+
+    let client = ClientBuilder::new(reqwest::Client::new())
+        .with_arc(cache)
+        .build();
+
+    let url = mock_server.uri();
+
+    let first = client.get(&url).send().await.unwrap().text().await.unwrap();
+    let second = client.get(&url).send().await.unwrap().text().await.unwrap();
+
+    assert_eq!(first, "process scoped cache");
+    assert_eq!(second, "process scoped cache");
+
+    let discovered_group = temp_root.path().join(".cache").join(env!("CARGO_PKG_NAME"));
+    assert!(discovered_group.exists());
+}
+
+#[tokio::test]
+async fn test_init_cache_process_scoped_with_throttle() {
+    let temp_root = TempFileTempDir::new().expect("create tempfile root");
+    let _cwd_guard = CwdGuard::swap_to(temp_root.path()).expect("set cwd to tempfile root");
+
+    let mock_server = MockServer::start().await;
+
+    Mock::given(wiremock::matchers::method("GET"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_string("process scoped cache + throttle")
+                .insert_header("Cache-Control", "max-age=60"),
+        )
+        .expect(1)
+        .mount(&mock_server)
+        .await;
+
+    let (cache, throttle) = init_cache_process_scoped_with_throttle(
+        CachePolicy::default(),
+        ThrottlePolicy {
+            base_delay_ms: 50,
+            adaptive_jitter_ms: 0,
+            max_concurrent: 1,
+            max_retries: 0,
+        },
+    )
+    .expect("failed to initialize process-scoped cache with throttle");
+
+    let client = ClientBuilder::new(reqwest::Client::new())
+        .with_arc(cache)
+        .with_arc(throttle)
+        .build();
+
+    let url = mock_server.uri();
+
+    let first = client.get(&url).send().await.unwrap().text().await.unwrap();
+    let second = client.get(&url).send().await.unwrap().text().await.unwrap();
+
+    assert_eq!(first, "process scoped cache + throttle");
+    assert_eq!(second, "process scoped cache + throttle");
+
+    let discovered_group = temp_root.path().join(".cache").join(env!("CARGO_PKG_NAME"));
+    assert!(discovered_group.exists());
 }
 
 #[tokio::test]

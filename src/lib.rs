@@ -1,5 +1,6 @@
 #![doc = include_str!("../README.md")]
 
+use std::io;
 use std::path::Path;
 
 pub use reqwest;
@@ -35,6 +36,22 @@ pub fn init_cache(cache_storage_file: &Path, policy: CachePolicy) -> Arc<DriveCa
     Arc::new(DriveCache::new(cache_storage_file, policy))
 }
 
+/// Initializes only the cache middleware using a discovered process-scoped cache location.
+///
+/// This uses a cache group derived from this crate's package name and creates a
+/// process/thread-scoped cache storage file automatically, so callers do not need
+/// to manually provide a cache path.
+///
+/// The underlying cache root is discovered via `CacheRoot::from_discovery()`.
+///
+/// # Errors
+///
+/// Returns an error if cache root discovery, process-scoped directory creation,
+/// or store initialization fails.
+pub fn init_cache_process_scoped(policy: CachePolicy) -> io::Result<Arc<DriveCache>> {
+    Ok(Arc::new(DriveCache::new_process_scoped(policy)?))
+}
+
 /// Initializes both cache and throttle middleware with a file-based data store.
 ///
 /// This function creates:
@@ -68,6 +85,28 @@ pub fn init_cache_with_throttle(
         Arc::clone(&cache),
     ));
     (cache, throttle)
+}
+
+/// Initializes cache and throttle middleware using a discovered process-scoped cache location.
+///
+/// This uses a cache group derived from this crate's package name and creates a
+/// process/thread-scoped cache storage file automatically, so callers do not need
+/// to manually provide a cache path.
+///
+/// # Errors
+///
+/// Returns an error if cache root discovery, process-scoped directory creation,
+/// or store initialization fails.
+pub fn init_cache_process_scoped_with_throttle(
+    cache_policy: CachePolicy,
+    throttle_policy: ThrottlePolicy,
+) -> io::Result<(Arc<DriveCache>, Arc<DriveThrottleBackoff>)> {
+    let cache = Arc::new(DriveCache::new_process_scoped(cache_policy)?);
+    let throttle = Arc::new(DriveThrottleBackoff::new(
+        throttle_policy,
+        Arc::clone(&cache),
+    ));
+    Ok((cache, throttle))
 }
 
 /// Initializes only the cache middleware using an **existing** `Arc<DataStore>`.

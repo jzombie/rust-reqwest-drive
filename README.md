@@ -10,6 +10,7 @@ High-performance caching, throttling, and backoff middleware for [reqwest](https
 
 `reqwest-drive` is a middleware based on [`reqwest-middleware`](https://crates.io/crates/reqwest-middleware) that provides:
 - **High-speed request caching** using [SIMD R Drive](https://crates.io/crates/simd-r-drive), a SIMD-optimized, single-file-container data store.
+- **Automatic process-scoped cache storage** via [cache-manager](https://crates.io/crates/cache-manager), with no manual cache path required.
 - **Adaptive request throttling** with support for dynamic concurrency limits.
 - **Configurable backoff strategies** for handling rate-limiting and transient failures.
 - **Throttle-only mode** that requires no persistent store.
@@ -78,6 +79,71 @@ async fn main() {
 }
 ```
 
+### Process-scoped cache (no manual cache path)
+
+Use this mode to automatically place cache storage under discovered `<crate-root>/.cache`,
+using cache group `reqwest-drive`, and a process/thread-scoped `cache_storage.bin` location:
+
+```rust
+use reqwest_drive::{init_cache_process_scoped, CachePolicy};
+use reqwest_middleware::ClientBuilder;
+use std::time::Duration;
+# use std::path::PathBuf;
+# use std::sync::{Mutex, OnceLock};
+#
+# fn cwd_lock() -> &'static Mutex<()> {
+#     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+#     LOCK.get_or_init(|| Mutex::new(()))
+# }
+#
+# struct CwdGuard {
+#     previous: PathBuf,
+#     _cwd_lock: std::sync::MutexGuard<'static, ()>,
+# }
+#
+# impl CwdGuard {
+#     fn swap_to(path: &std::path::Path) -> std::io::Result<Self> {
+#         let cwd_lock_guard = cwd_lock().lock().expect("acquire cwd lock");
+#         let previous = std::env::current_dir()?;
+#         std::env::set_current_dir(path)?;
+#         Ok(Self {
+#             previous,
+#             _cwd_lock: cwd_lock_guard,
+#         })
+#     }
+# }
+#
+# impl Drop for CwdGuard {
+#     fn drop(&mut self) {
+#         let _ = std::env::set_current_dir(&self.previous);
+#     }
+# }
+
+#[tokio::main]
+async fn main() {
+    # let temp_root = tempfile::tempdir().unwrap();
+    # let _cwd_guard = CwdGuard::swap_to(temp_root.path()).unwrap();
+    let cache = init_cache_process_scoped(CachePolicy {
+        default_ttl: Duration::from_secs(3600),
+        respect_headers: true,
+        cache_status_override: None,
+    })
+    .expect("init process-scoped cache");
+
+    let client = ClientBuilder::new(reqwest::Client::new())
+        .with_arc(cache)
+        .build();
+
+    let response = client.get("https://httpbin.org/get").send().await.unwrap();
+    println!("Response status: {}", response.status());
+}
+```
+
+Notes:
+- The cache group name is this crate's package name: `reqwest-drive`.
+- Process directories are PID-scoped and cleaned up on normal process shutdown.
+- Cleanup is best-effort (crashes/forced exits can leave stale directories).
+
 ### Throttling & Backoff
 
 To enable request throttling and exponential backoff:
@@ -107,6 +173,66 @@ async fn main() {
         .with_arc(cache)
         .with_arc(throttle)
         .build();
+
+    let response = client.get("https://httpbin.org/status/429").send().await.unwrap();
+    println!("Response status: {}", response.status());
+}
+```
+
+### Process-scoped cache + throttling
+
+```rust
+use reqwest_drive::{
+    CachePolicy, ThrottlePolicy, init_cache_process_scoped_with_throttle,
+    init_client_with_cache_and_throttle,
+};
+# use std::path::PathBuf;
+# use std::sync::{Mutex, OnceLock};
+#
+# fn cwd_lock() -> &'static Mutex<()> {
+#     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+#     LOCK.get_or_init(|| Mutex::new(()))
+# }
+#
+# struct CwdGuard {
+#     previous: PathBuf,
+#     _cwd_lock: std::sync::MutexGuard<'static, ()>,
+# }
+#
+# impl CwdGuard {
+#     fn swap_to(path: &std::path::Path) -> std::io::Result<Self> {
+#         let cwd_lock_guard = cwd_lock().lock().expect("acquire cwd lock");
+#         let previous = std::env::current_dir()?;
+#         std::env::set_current_dir(path)?;
+#         Ok(Self {
+#             previous,
+#             _cwd_lock: cwd_lock_guard,
+#         })
+#     }
+# }
+#
+# impl Drop for CwdGuard {
+#     fn drop(&mut self) {
+#         let _ = std::env::set_current_dir(&self.previous);
+#     }
+# }
+
+#[tokio::main]
+async fn main() {
+    # let temp_root = tempfile::tempdir().unwrap();
+    # let _cwd_guard = CwdGuard::swap_to(temp_root.path()).unwrap();
+    let (cache, throttle) = init_cache_process_scoped_with_throttle(
+        CachePolicy::default(),
+        ThrottlePolicy {
+            base_delay_ms: 200,
+            adaptive_jitter_ms: 100,
+            max_concurrent: 2,
+            max_retries: 3,
+        },
+    )
+    .expect("init process-scoped cache + throttle");
+
+    let client = init_client_with_cache_and_throttle(cache, throttle);
 
     let response = client.get("https://httpbin.org/status/429").send().await.unwrap();
     println!("Response status: {}", response.status());

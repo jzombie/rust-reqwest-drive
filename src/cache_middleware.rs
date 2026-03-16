@@ -2,12 +2,14 @@ use async_trait::async_trait;
 // Binary serialization
 use bitcode::{Decode, Encode};
 use bytes::Bytes;
+use cache_manager::{CacheRoot, ProcessScopedCacheGroup};
 use chrono::{DateTime, Utc};
 use http::{Extensions, HeaderMap, HeaderValue, StatusCode};
 use reqwest::{Request, Response};
 use reqwest_middleware::{Middleware, Next, Result};
 use simd_r_drive::traits::{DataStoreReader, DataStoreWriter};
 use simd_r_drive::{DataStore, compute_hash};
+use std::io;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH}; // For parsing `Expires` headers
@@ -140,6 +142,7 @@ struct CachedResponse {
 pub struct DriveCache {
     store: Arc<DataStore>,
     policy: CachePolicy, // Configurable policy
+    _process_scoped_group: Option<Arc<ProcessScopedCacheGroup>>,
 }
 
 impl DriveCache {
@@ -162,7 +165,38 @@ impl DriveCache {
         Self {
             store: Arc::new(DataStore::open(cache_storage_file).unwrap()),
             policy,
+            _process_scoped_group: None,
         }
+    }
+
+    /// Creates a new cache using discovered `.cache` root and a process-scoped storage bin.
+    ///
+    /// The cache group is derived from this crate name (`reqwest-drive`), and the entry
+    /// file is created under a process/thread scoped subdirectory so callers do not need
+    /// to manually provide a cache path.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if discovery or process-scoped directory/file initialization fails.
+    pub fn new_process_scoped(policy: CachePolicy) -> io::Result<Self> {
+        let cache_root = CacheRoot::from_discovery()?;
+        let scoped_group = Arc::new(ProcessScopedCacheGroup::new(
+            &cache_root,
+            env!("CARGO_PKG_NAME"),
+        )?);
+        let cache_storage_file = scoped_group.touch_thread_entry("cache_storage.bin")?;
+        let store = DataStore::open(&cache_storage_file).map_err(|err| {
+            io::Error::other(format!(
+                "failed to open DataStore at {}: {err}",
+                cache_storage_file.display()
+            ))
+        })?;
+
+        Ok(Self {
+            store: Arc::new(store),
+            policy,
+            _process_scoped_group: Some(scoped_group),
+        })
     }
 
     /// Creates a new cache using an existing `Arc<DataStore>`.
@@ -179,7 +213,11 @@ impl DriveCache {
     /// This is thread-safe within a process. Avoid concurrent multi-process
     /// access to the same underlying store/file.
     pub fn with_drive_arc(store: Arc<DataStore>, policy: CachePolicy) -> Self {
-        Self { store, policy }
+        Self {
+            store,
+            policy,
+            _process_scoped_group: None,
+        }
     }
 
     /// Checks whether a request is cached and still valid.
