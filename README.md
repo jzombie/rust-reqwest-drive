@@ -88,41 +88,15 @@ using cache group `reqwest-drive`, and a process/thread-scoped `cache_storage.bi
 use reqwest_drive::{init_cache_process_scoped, CachePolicy};
 use reqwest_middleware::ClientBuilder;
 use std::time::Duration;
-# use std::path::PathBuf;
-# use std::sync::{Mutex, OnceLock};
-#
-# fn cwd_lock() -> &'static Mutex<()> {
-#     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-#     LOCK.get_or_init(|| Mutex::new(()))
-# }
-#
-# struct CwdGuard {
-#     previous: PathBuf,
-#     _cwd_lock: std::sync::MutexGuard<'static, ()>,
-# }
-#
-# impl CwdGuard {
-#     fn swap_to(path: &std::path::Path) -> std::io::Result<Self> {
-#         let cwd_lock_guard = cwd_lock().lock().expect("acquire cwd lock");
-#         let previous = std::env::current_dir()?;
-#         std::env::set_current_dir(path)?;
-#         Ok(Self {
-#             previous,
-#             _cwd_lock: cwd_lock_guard,
-#         })
-#     }
-# }
-#
-# impl Drop for CwdGuard {
-#     fn drop(&mut self) {
-#         let _ = std::env::set_current_dir(&self.previous);
-#     }
-# }
 
 #[tokio::main]
 async fn main() {
-    # let temp_root = tempfile::tempdir().unwrap();
-    # let _cwd_guard = CwdGuard::swap_to(temp_root.path()).unwrap();
+    // Optional: keep cache discovery scoped to a temp root for demo/test isolation.
+    // In a real app, you can remove this and let discovery use your current project root.
+    let temp_root = tempfile::tempdir().unwrap();
+    let previous_cwd = std::env::current_dir().unwrap();
+    std::env::set_current_dir(temp_root.path()).unwrap();
+
     let cache = init_cache_process_scoped(CachePolicy {
         default_ttl: Duration::from_secs(3600),
         respect_headers: true,
@@ -136,6 +110,8 @@ async fn main() {
 
     let response = client.get("https://httpbin.org/get").send().await.unwrap();
     println!("Response status: {}", response.status());
+
+    std::env::set_current_dir(previous_cwd).unwrap();
 }
 ```
 
@@ -186,41 +162,14 @@ use reqwest_drive::{
     CachePolicy, ThrottlePolicy, init_cache_process_scoped_with_throttle,
     init_client_with_cache_and_throttle,
 };
-# use std::path::PathBuf;
-# use std::sync::{Mutex, OnceLock};
-#
-# fn cwd_lock() -> &'static Mutex<()> {
-#     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-#     LOCK.get_or_init(|| Mutex::new(()))
-# }
-#
-# struct CwdGuard {
-#     previous: PathBuf,
-#     _cwd_lock: std::sync::MutexGuard<'static, ()>,
-# }
-#
-# impl CwdGuard {
-#     fn swap_to(path: &std::path::Path) -> std::io::Result<Self> {
-#         let cwd_lock_guard = cwd_lock().lock().expect("acquire cwd lock");
-#         let previous = std::env::current_dir()?;
-#         std::env::set_current_dir(path)?;
-#         Ok(Self {
-#             previous,
-#             _cwd_lock: cwd_lock_guard,
-#         })
-#     }
-# }
-#
-# impl Drop for CwdGuard {
-#     fn drop(&mut self) {
-#         let _ = std::env::set_current_dir(&self.previous);
-#     }
-# }
 
 #[tokio::main]
 async fn main() {
-    # let temp_root = tempfile::tempdir().unwrap();
-    # let _cwd_guard = CwdGuard::swap_to(temp_root.path()).unwrap();
+    // Optional: keep cache discovery scoped to a temp root for demo/test isolation.
+    let temp_root = tempfile::tempdir().unwrap();
+    let previous_cwd = std::env::current_dir().unwrap();
+    std::env::set_current_dir(temp_root.path()).unwrap();
+
     let (cache, throttle) = init_cache_process_scoped_with_throttle(
         CachePolicy::default(),
         ThrottlePolicy {
@@ -236,6 +185,8 @@ async fn main() {
 
     let response = client.get("https://httpbin.org/status/429").send().await.unwrap();
     println!("Response status: {}", response.status());
+
+    std::env::set_current_dir(previous_cwd).unwrap();
 }
 ```
 
