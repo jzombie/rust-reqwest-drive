@@ -1,12 +1,12 @@
 use reqwest_drive::{CachePolicy, DriveCache, DriveThrottleBackoff, ThrottlePolicy};
 use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
 use std::{sync::Arc, time::Duration};
-use tempdir::TempDir;
+use tempfile::TempDir;
 use tokio::time::Instant;
 
 #[tokio::main]
 async fn main() {
-    let temp_dir = TempDir::new("cache_test").unwrap();
+    let temp_dir = TempDir::new().unwrap();
     let cache_path = temp_dir.path().join("cache.bin");
 
     // Configure Cache Settings

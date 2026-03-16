@@ -2,12 +2,12 @@ use reqwest_drive::{CachePolicy, ThrottlePolicy, init_cache_with_drive_and_throt
 use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
 use simd_r_drive::DataStore;
 use std::{sync::Arc, time::Duration};
-use tempdir::TempDir;
+use tempfile::TempDir;
 use tokio::time::Instant;
 
 #[tokio::main]
 async fn main() {
-    let temp_dir = TempDir::new("cache_test").unwrap();
+    let temp_dir = TempDir::new().unwrap();
     let cache_path = temp_dir.path().join("cache.bin");
 
     // Initialize shared DataStore for caching

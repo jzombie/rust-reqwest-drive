@@ -563,7 +563,7 @@ mod tests {
     use reqwest::Method;
     use std::collections::{HashMap, HashSet};
     use std::sync::Once;
-    use tempdir::TempDir;
+    use tempfile::TempDir;
 
     #[allow(dead_code)]
     fn init_test_tracing() {
@@ -595,7 +595,7 @@ mod tests {
     }
 
     fn build_cache_for_tests() -> DriveCache {
-        let temp_dir = TempDir::new("cache_key_matrix_test").expect("failed to create temp dir");
+        let temp_dir = TempDir::new().expect("failed to create temp dir");
         let cache_path = temp_dir.path().join("cache_key_matrix.bin");
         DriveCache::new(&cache_path, CachePolicy::default())
     }
@@ -735,7 +735,7 @@ mod tests {
 
     #[test]
     fn fuzz_cache_key_hash_collisions_uses_library_key_generator() {
-        let temp_dir = TempDir::new("cache_key_fuzz_test").expect("failed to create temp dir");
+        let temp_dir = TempDir::new().expect("failed to create temp dir");
         let cache_path = temp_dir.path().join("cache_key_fuzz.bin");
         let cache = DriveCache::new(&cache_path, CachePolicy::default());
 

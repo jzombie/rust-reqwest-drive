@@ -11,8 +11,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::time::Duration;
-use tempdir::TempDir;
-use tempfile::TempDir as TempFileTempDir;
+use tempfile::TempDir;
 use tokio::sync::{Barrier, mpsc};
 use tokio::time::{Instant, sleep};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -48,7 +47,7 @@ impl Drop for CwdGuard {
 /// Test cache-only middleware
 #[tokio::test]
 async fn test_cache_middleware() {
-    let temp_dir = TempDir::new("cache_test").unwrap();
+    let temp_dir = TempDir::new().unwrap();
     let cache_path = temp_dir.path().join("cache.bin");
 
     let mock_server = MockServer::start().await;
@@ -88,7 +87,7 @@ async fn test_cache_middleware() {
 
 #[tokio::test]
 async fn test_init_cache_process_scoped() {
-    let temp_root = TempFileTempDir::new().expect("create tempfile root");
+    let temp_root = TempDir::new().expect("create tempfile root");
     let _cwd_guard = CwdGuard::swap_to(temp_root.path()).expect("set cwd to tempfile root");
 
     let mock_server = MockServer::start().await;
@@ -124,7 +123,7 @@ async fn test_init_cache_process_scoped() {
 
 #[tokio::test]
 async fn test_init_cache_process_scoped_with_throttle() {
-    let temp_root = TempFileTempDir::new().expect("create tempfile root");
+    let temp_root = TempDir::new().expect("create tempfile root");
     let _cwd_guard = CwdGuard::swap_to(temp_root.path()).expect("set cwd to tempfile root");
 
     let mock_server = MockServer::start().await;
@@ -169,7 +168,7 @@ async fn test_init_cache_process_scoped_with_throttle() {
 
 #[tokio::test]
 async fn test_cache_key_normalizes_query_param_order() {
-    let temp_dir = TempDir::new("cache_query_normalization_test").unwrap();
+    let temp_dir = TempDir::new().unwrap();
     let cache_path = temp_dir.path().join("cache_query_normalization.bin");
 
     let mock_server = MockServer::start().await;
@@ -212,7 +211,7 @@ async fn test_cache_key_normalizes_query_param_order() {
 
 #[tokio::test]
 async fn test_cache_key_varies_on_accept_language_header() {
-    let temp_dir = TempDir::new("cache_vary_header_test").unwrap();
+    let temp_dir = TempDir::new().unwrap();
     let cache_path = temp_dir.path().join("cache_vary_header.bin");
 
     let mock_server = MockServer::start().await;
@@ -284,7 +283,7 @@ async fn test_cache_key_varies_on_accept_language_header() {
 /// Test throttling middleware with retries
 #[tokio::test]
 async fn test_throttling_behavior() {
-    let temp_dir = TempDir::new("cache_test").unwrap();
+    let temp_dir = TempDir::new().unwrap();
     let cache_path = temp_dir.path().join("cache.bin");
 
     let mock_server = MockServer::start().await;
@@ -369,7 +368,7 @@ async fn test_throttling_behavior() {
 /// Test cache expiration after TTL
 #[tokio::test]
 async fn test_cache_expiration() {
-    let temp_dir = TempDir::new("cache_test").unwrap();
+    let temp_dir = TempDir::new().unwrap();
     let cache_path = temp_dir.path().join("cache.bin");
 
     let mock_server = MockServer::start().await;
@@ -414,7 +413,7 @@ async fn test_cache_expiration() {
 
 #[tokio::test]
 async fn test_backoff_on_server_error() {
-    let temp_dir = TempDir::new("cache_test").unwrap();
+    let temp_dir = TempDir::new().unwrap();
     let cache_path = temp_dir.path().join("cache.bin");
 
     let mock_server = MockServer::start().await;
@@ -480,7 +479,7 @@ async fn test_backoff_on_server_error() {
 
 #[tokio::test]
 async fn test_backoff_with_eventual_success() {
-    let temp_dir = TempDir::new("cache_test").unwrap();
+    let temp_dir = TempDir::new().unwrap();
     let cache_path = temp_dir.path().join("cache.bin");
 
     let mock_server = MockServer::start().await;
@@ -569,7 +568,7 @@ async fn test_backoff_with_eventual_success() {
 
 #[tokio::test]
 async fn test_init_cache_with_throttle() {
-    let temp_dir = TempDir::new("cache_throttle_test").unwrap();
+    let temp_dir = TempDir::new().unwrap();
     let cache_path = temp_dir.path().join("cache_throttle.bin");
 
     let mock_server = MockServer::start().await;
@@ -639,7 +638,7 @@ async fn test_init_cache_with_throttle() {
 
 #[tokio::test]
 async fn test_with_drive_arc() {
-    let temp_dir = TempDir::new("cache_drive_test").unwrap();
+    let temp_dir = TempDir::new().unwrap();
     let cache_path = temp_dir.path().join("cache_drive.bin");
 
     let mock_server = MockServer::start().await;
@@ -688,7 +687,7 @@ async fn test_with_drive_arc() {
 
 #[tokio::test]
 async fn test_with_drive_arc_and_throttle() {
-    let temp_dir = TempDir::new("cache_drive_throttle_test").unwrap();
+    let temp_dir = TempDir::new().unwrap();
     let cache_path = temp_dir.path().join("cache_drive_throttle.bin");
 
     let mock_server = MockServer::start().await;
@@ -784,7 +783,7 @@ async fn test_with_drive_arc_and_throttle() {
 //  - other status codes
 #[tokio::test]
 async fn test_cache_status_override() {
-    let temp_dir = TempDir::new("cache_status_override_test").unwrap();
+    let temp_dir = TempDir::new().unwrap();
     let cache_path = temp_dir.path().join("cache_override.bin");
 
     let mock_server = MockServer::start().await;
@@ -864,7 +863,7 @@ async fn test_cache_status_override() {
 /// Test that multiple requests run concurrently within throttling constraints.
 #[tokio::test]
 async fn test_concurrent_requests_without_cache() {
-    let temp_dir = TempDir::new("concurrent_test").unwrap();
+    let temp_dir = TempDir::new().unwrap();
     let cache_path = temp_dir.path().join("cache_concurrent.bin");
 
     let mock_server = MockServer::start().await;
@@ -959,7 +958,7 @@ async fn test_concurrent_requests_without_cache() {
 /// Test that the throttle enforces max_concurrent requests correctly.
 #[tokio::test]
 async fn test_throttling_respects_max_concurrent() {
-    let temp_dir = TempDir::new("throttle_test").unwrap();
+    let temp_dir = TempDir::new().unwrap();
     let cache_path = temp_dir.path().join("cache_throttle_test.bin");
 
     let mock_server = MockServer::start().await;
@@ -1062,7 +1061,7 @@ async fn test_throttling_respects_max_concurrent() {
 
 #[tokio::test]
 async fn test_throttle_policy_override() {
-    let temp_dir = TempDir::new("throttle_override_test").unwrap();
+    let temp_dir = TempDir::new().unwrap();
     let cache_path = temp_dir.path().join("cache_throttle_override.bin");
 
     let mock_server = MockServer::start().await;
@@ -1158,7 +1157,7 @@ async fn test_throttle_policy_override() {
 
 #[tokio::test]
 async fn test_per_request_cache_bypass_with_throttle_and_shared_store() {
-    let temp_dir = TempDir::new("cache_bypass_test").unwrap();
+    let temp_dir = TempDir::new().unwrap();
     let cache_path = temp_dir.path().join("cache_bypass.bin");
 
     let mock_server = MockServer::start().await;
@@ -1220,7 +1219,7 @@ async fn test_per_request_cache_bypass_with_throttle_and_shared_store() {
 
 #[tokio::test]
 async fn test_per_request_cache_bust_refreshes_cached_value() {
-    let temp_dir = TempDir::new("cache_bust_test").unwrap();
+    let temp_dir = TempDir::new().unwrap();
     let cache_path = temp_dir.path().join("cache_bust.bin");
 
     let mock_server = MockServer::start().await;
@@ -1282,7 +1281,7 @@ async fn test_per_request_cache_bust_refreshes_cached_value() {
 
 #[tokio::test]
 async fn test_init_client_with_cache_and_throttle() {
-    let temp_dir = TempDir::new("client_cache_throttle_test").unwrap();
+    let temp_dir = TempDir::new().unwrap();
     let cache_path = temp_dir.path().join("client_cache_throttle.bin");
 
     let mock_server = MockServer::start().await;
