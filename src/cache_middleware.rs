@@ -178,7 +178,7 @@ impl DriveCache {
 
         // let store = self.store.read().await;
         if let Ok(Some(entry_handle)) = store.read(cache_key_bytes) {
-            eprintln!("Entry handle: {:?}", entry_handle);
+            tracing::debug!("Entry handle: {:?}", entry_handle);
 
             if let Ok(cached) = bitcode::decode::<CachedResponse>(entry_handle.as_slice()) {
                 let now = SystemTime::now()
@@ -206,18 +206,18 @@ impl DriveCache {
 
                 // If expired, remove from cache
                 if now >= expected_expiration {
-                    // eprintln!("Determined cache is expired. now - expected_expiration: {:?}", now - expected_expiration);
-                    eprintln!(
+                    // tracing::debug!("Determined cache is expired. now - expected_expiration: {:?}", now - expected_expiration);
+                    tracing::debug!(
                         "Cache expires at: {}",
                         chrono::DateTime::from_timestamp_millis(expected_expiration as i64)
                             .unwrap()
                     );
-                    eprintln!(
+                    tracing::debug!(
                         "Expiration timestamp: {}",
                         chrono::DateTime::from_timestamp_millis(cached.expiration_timestamp as i64)
                             .unwrap()
                     );
-                    eprintln!(
+                    tracing::debug!(
                         "Now: {}",
                         chrono::DateTime::from_timestamp_millis(now as i64).unwrap()
                     );
@@ -396,7 +396,7 @@ impl Middleware for DriveCache {
 
         let cache_key = self.generate_cache_key(&req);
 
-        eprintln!("Handle cache key: {}", cache_key);
+        tracing::debug!("Handle cache key: {}", cache_key);
 
         let store = self.store.as_ref();
         let cache_key_bytes = cache_key.as_bytes();
@@ -450,7 +450,7 @@ impl Middleware for DriveCache {
                     expiration_timestamp,
                 });
 
-                eprintln!("Writing cache with key: {}", cache_key);
+                tracing::debug!("Writing cache with key: {}", cache_key);
                 store.write(cache_key_bytes, serialized.as_slice()).ok();
             }
 

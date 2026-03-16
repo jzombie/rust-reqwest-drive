@@ -224,9 +224,10 @@ async fn test_throttling_behavior() {
             min_expected_delay, elapsed
         );
     } else if elapsed > max_expected_delay {
-        eprintln!(
+        tracing::warn!(
             "⚠️ Warning: Throttling took longer than expected. Expected at most {:?}, but got {:?}",
-            max_expected_delay, elapsed
+            max_expected_delay,
+            elapsed
         );
     }
 
@@ -243,9 +244,10 @@ async fn test_throttling_behavior() {
         );
 
         if delay_between_requests > max_per_request {
-            eprintln!(
+            tracing::warn!(
                 "⚠️ Warning: Request spacing exceeded max expected ({:?}). Got {:?}",
-                max_per_request, delay_between_requests
+                max_per_request,
+                delay_between_requests
             );
         }
     }
@@ -355,9 +357,10 @@ async fn test_backoff_on_server_error() {
         elapsed
     );
     if elapsed > max_expected_delay {
-        eprintln!(
+        tracing::warn!(
             "⚠️ Warning: Backoff took longer than expected. Expected at most {:?}, but got {:?}",
-            max_expected_delay, elapsed
+            max_expected_delay,
+            elapsed
         );
     }
 }
@@ -435,9 +438,10 @@ async fn test_backoff_with_eventual_success() {
         elapsed
     );
     if elapsed > max_expected_delay {
-        eprintln!(
+        tracing::warn!(
             "⚠️ Warning: Backoff took longer than expected. Expected at most {:?}, but got {:?}",
-            max_expected_delay, elapsed
+            max_expected_delay,
+            elapsed
         );
     }
 
@@ -513,9 +517,10 @@ async fn test_init_cache_with_throttle() {
         "Second request was not instant despite caching!"
     );
 
-    println!(
+    tracing::info!(
         "Test passed! First request took {:?}, second request took {:?} (should be cached).",
-        elapsed_1, elapsed_2
+        elapsed_1,
+        elapsed_2
     );
 }
 
@@ -565,7 +570,7 @@ async fn test_with_drive_arc() {
     // Ensure the second request is served from cache
     assert_eq!(second_body, "cached response");
 
-    println!("`init_cache_with_drive` successfully initialized and cached responses.");
+    tracing::info!("`init_cache_with_drive` successfully initialized and cached responses.");
 }
 
 #[tokio::test]
@@ -630,9 +635,10 @@ async fn test_with_drive_arc_and_throttle() {
             min_expected_delay, elapsed
         );
     } else if elapsed > max_expected_delay {
-        eprintln!(
+        tracing::warn!(
             "⚠️ Warning: Throttling took longer than expected. Expected at most {:?}, but got {:?}",
-            max_expected_delay, elapsed
+            max_expected_delay,
+            elapsed
         );
     }
 
@@ -649,14 +655,15 @@ async fn test_with_drive_arc_and_throttle() {
         );
 
         if delay_between_requests > max_per_request {
-            eprintln!(
+            tracing::warn!(
                 "⚠️ Warning: Request spacing exceeded max expected ({:?}). Got {:?}",
-                max_per_request, delay_between_requests
+                max_per_request,
+                delay_between_requests
             );
         }
     }
 
-    println!("`init_cache_with_drive_and_throttle` successfully enforced throttling.");
+    tracing::info!("`init_cache_with_drive_and_throttle` successfully enforced throttling.");
 }
 
 // TODO: This is just a basic test, and more tests could be added which excersize things like
@@ -897,7 +904,7 @@ async fn test_throttling_respects_max_concurrent() {
 
                 let start_time = Instant::now();
 
-                eprintln!("Awaiting the lock...");
+                tracing::debug!("Awaiting the lock...");
 
                 // Acquire permit from the throttle middleware
                 // let _permit = throttle.acquire().await;
@@ -905,7 +912,7 @@ async fn test_throttling_respects_max_concurrent() {
                 // Track the maximum number of concurrent requests seen
                 let current_in_flight = max_concurrent - throttle.available_permits();
 
-                eprintln!("Current in flight: {}", current_in_flight);
+                tracing::debug!("Current in flight: {}", current_in_flight);
 
                 max_seen.fetch_max(current_in_flight, Ordering::SeqCst);
 
@@ -933,9 +940,10 @@ async fn test_throttling_respects_max_concurrent() {
         max_seen
     );
 
-    println!(
+    tracing::info!(
         "✅ Throttling enforced correctly! Max concurrent requests: {} (expected {}).",
-        max_seen, max_concurrent
+        max_seen,
+        max_concurrent
     );
 }
 
@@ -1027,9 +1035,10 @@ async fn test_throttle_policy_override() {
         elapsed
     );
     if elapsed > max_expected_delay {
-        eprintln!(
+        tracing::warn!(
             "⚠️ Warning: Backoff took longer than expected. Expected at most {:?}, but got {:?}",
-            max_expected_delay, elapsed
+            max_expected_delay,
+            elapsed
         );
     }
 }
@@ -1218,9 +1227,10 @@ async fn test_init_client_with_cache_and_throttle() {
         "Second request was not instant despite caching!"
     );
 
-    println!(
+    tracing::info!(
         "Test passed! First request took {:?}, second request took {:?} (should be cached).",
-        elapsed_1, elapsed_2
+        elapsed_1,
+        elapsed_2
     );
 }
 

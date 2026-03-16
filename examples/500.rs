@@ -39,12 +39,12 @@ async fn main() {
 
     let start_time = Instant::now();
 
-    println!("Sending request to: {}", url);
+    tracing::info!("Sending request to: {}", url);
 
     let response = match client.get(url).send().await {
         Ok(resp) => resp,
         Err(err) => {
-            eprintln!("❌ Request failed after retries: {:?}", err);
+            tracing::error!("❌ Request failed after retries: {:?}", err);
             return;
         }
     };
@@ -52,12 +52,12 @@ async fn main() {
     let elapsed = start_time.elapsed();
 
     // Output Results
-    println!("✅ Final Response Status: {}", response.status());
+    tracing::info!("✅ Final Response Status: {}", response.status());
     if let Ok(body) = response.text().await {
-        println!("📜 Response Body: {}", body);
+        tracing::info!("📜 Response Body: {}", body);
     }
 
-    println!(
+    tracing::info!(
         "⏳ Total Time Taken (including retries & backoff): {:?}",
         elapsed
     );

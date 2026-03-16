@@ -177,11 +177,11 @@ impl Middleware for DriveThrottleBackoff {
             && let Some(cache) = &self.cache
         {
             if cache.is_cached(&req).await {
-                eprintln!("Using cache for: {}", &cache_key);
+                tracing::debug!("Using cache for: {}", &cache_key);
 
                 return next.run(req, extensions).await;
             } else {
-                eprintln!("No cache found for: {}", &cache_key);
+                tracing::debug!("No cache found for: {}", &cache_key);
             }
         }
 
@@ -191,7 +191,7 @@ impl Middleware for DriveThrottleBackoff {
 
         // Log if the permit is not immediately available
         if self.semaphore.available_permits() == 0 {
-            eprintln!("Waiting for permit... ({} in use)", policy.max_concurrent);
+            tracing::debug!("Waiting for permit... ({} in use)", policy.max_concurrent);
         }
 
         // Acquire the permit and log when granted
@@ -201,7 +201,7 @@ impl Middleware for DriveThrottleBackoff {
             .await
             .map_err(|e| Error::Middleware(e.into()))?;
 
-        eprintln!(
+        tracing::debug!(
             "Permit granted: {} ({} permits left)",
             cache_key,
             self.semaphore.available_permits()
@@ -232,7 +232,7 @@ impl Middleware for DriveThrottleBackoff {
                         )
                     };
 
-                    eprintln!(
+                    tracing::debug!(
                         "Retry {}/{} for URL {} after {} ms",
                         attempt,
                         policy.max_retries,
