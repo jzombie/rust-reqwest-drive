@@ -1,12 +1,13 @@
-#[cfg(doctest)]
-doc_comment::doctest!("../README.md");
+#![doc = include_str!("../README.md")]
 
+use std::io;
 use std::path::Path;
 
+pub use reqwest;
 pub use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
 
 mod cache_middleware;
-pub use cache_middleware::{CachePolicy, DriveCache};
+pub use cache_middleware::{CacheBust, CacheBypass, CachePolicy, DriveCache};
 
 mod throttle_middleware;
 pub use throttle_middleware::{DriveThrottleBackoff, ThrottlePolicy};
@@ -14,11 +15,14 @@ pub use throttle_middleware::{DriveThrottleBackoff, ThrottlePolicy};
 use simd_r_drive::DataStore;
 use std::sync::Arc;
 
-// TODO: Add usage examples here
-
 /// Initializes only the cache middleware with a file-based data store.
 ///
 /// This function creates a new `DriveCache` instance backed by a `DataStore` file.
+///
+/// ## Concurrency
+///
+/// Thread-safe within a single process.
+/// Not multi-process safe when multiple processes use the same cache file concurrently.
 ///
 /// # Arguments
 ///
@@ -32,11 +36,32 @@ pub fn init_cache(cache_storage_file: &Path, policy: CachePolicy) -> Arc<DriveCa
     Arc::new(DriveCache::new(cache_storage_file, policy))
 }
 
+/// Initializes only the cache middleware using a discovered process-scoped cache location.
+///
+/// This uses a cache group derived from this crate's package name and creates a
+/// process/thread-scoped cache storage file automatically, so callers do not need
+/// to manually provide a cache path.
+///
+/// The underlying cache root is discovered via `CacheRoot::from_discovery()`.
+///
+/// # Errors
+///
+/// Returns an error if cache root discovery, process-scoped directory creation,
+/// or store initialization fails.
+pub fn init_cache_process_scoped(policy: CachePolicy) -> io::Result<Arc<DriveCache>> {
+    Ok(Arc::new(DriveCache::new_process_scoped(policy)?))
+}
+
 /// Initializes both cache and throttle middleware with a file-based data store.
 ///
 /// This function creates:
 /// - A `DriveCache` instance for response caching.
 /// - A `DriveThrottleBackoff` instance for rate-limiting and retrying failed requests.
+///
+/// ## Concurrency
+///
+/// The cache component is thread-safe within a process, but the cache file
+/// should not be shared concurrently across multiple processes.
 ///
 /// # Arguments
 ///
@@ -62,10 +87,37 @@ pub fn init_cache_with_throttle(
     (cache, throttle)
 }
 
+/// Initializes cache and throttle middleware using a discovered process-scoped cache location.
+///
+/// This uses a cache group derived from this crate's package name and creates a
+/// process/thread-scoped cache storage file automatically, so callers do not need
+/// to manually provide a cache path.
+///
+/// # Errors
+///
+/// Returns an error if cache root discovery, process-scoped directory creation,
+/// or store initialization fails.
+pub fn init_cache_process_scoped_with_throttle(
+    cache_policy: CachePolicy,
+    throttle_policy: ThrottlePolicy,
+) -> io::Result<(Arc<DriveCache>, Arc<DriveThrottleBackoff>)> {
+    let cache = Arc::new(DriveCache::new_process_scoped(cache_policy)?);
+    let throttle = Arc::new(DriveThrottleBackoff::new(
+        throttle_policy,
+        Arc::clone(&cache),
+    ));
+    Ok((cache, throttle))
+}
+
 /// Initializes only the cache middleware using an **existing** `Arc<DataStore>`.
 ///
 /// This function is useful if a shared `DataStore` instance already exists
 /// and should be reused instead of creating a new one.
+///
+/// ## Concurrency
+///
+/// Thread-safe within a process.
+/// Avoid sharing the same underlying store/file concurrently across processes.
 ///
 /// # Arguments
 ///
@@ -83,6 +135,11 @@ pub fn init_cache_with_drive(store: Arc<DataStore>, policy: CachePolicy) -> Arc<
 ///
 /// This function is useful if a shared `DataStore` instance already exists
 /// and should be reused instead of creating a new one.
+///
+/// ## Concurrency
+///
+/// Thread-safe within a process.
+/// Avoid concurrent multi-process access to the same backing store/file.
 ///
 /// # Arguments
 ///
@@ -108,6 +165,46 @@ pub fn init_cache_with_drive_and_throttle(
     (cache, throttle)
 }
 
+/// Initializes only the throttle middleware without any cache or data store.
+///
+/// This mode applies request throttling and retry/backoff logic only.
+/// No persistent storage is required.
+///
+/// # Arguments
+///
+/// * `throttle_policy` - The throttling and backoff policy.
+///
+/// # Returns
+///
+/// An `Arc<DriveThrottleBackoff>` instance for throttling requests.
+///
+/// # Example
+///
+/// ```no_run
+/// use reqwest_drive::{init_throttle, ThrottlePolicy};
+/// use reqwest_middleware::ClientBuilder;
+///
+/// #[tokio::main]
+/// async fn main() {
+///     let throttle = init_throttle(ThrottlePolicy {
+///         base_delay_ms: 200,
+///         adaptive_jitter_ms: 100,
+///         max_concurrent: 2,
+///         max_retries: 2,
+///     });
+///
+///     let client = ClientBuilder::new(reqwest::Client::new())
+///         .with_arc(throttle)
+///         .build();
+///
+///     let response = client.get("https://httpbin.org/get").send().await.unwrap();
+///     assert!(response.status().is_success());
+/// }
+/// ```
+pub fn init_throttle(throttle_policy: ThrottlePolicy) -> Arc<DriveThrottleBackoff> {
+    Arc::new(DriveThrottleBackoff::without_cache(throttle_policy))
+}
+
 /// Initializes a `reqwest` client with both cache and throttle middleware.
 ///
 /// This function constructs a `ClientWithMiddleware` by attaching:
@@ -128,12 +225,14 @@ pub fn init_cache_with_drive_and_throttle(
 /// ```rust
 /// use reqwest_drive::{init_cache_with_throttle, init_client_with_cache_and_throttle, CachePolicy, ThrottlePolicy};
 /// use reqwest_middleware::ClientWithMiddleware;
-/// use std::path::Path;
-/// use std::sync::Arc;
 /// use std::time::Duration;
+/// use tempfile::tempdir;
 ///
 /// #[tokio::main]
 /// async fn main() {
+///     let temp_dir = tempdir().unwrap();
+///     let cache_path = temp_dir.path().join("cache_storage.bin");
+///
 ///     let cache_policy = CachePolicy {
 ///         default_ttl: Duration::from_secs(60),
 ///         respect_headers: true,
@@ -147,7 +246,7 @@ pub fn init_cache_with_drive_and_throttle(
 ///         max_retries: 2,
 ///     };
 ///
-///     let (cache, throttle) = init_cache_with_throttle(Path::new("cache_storage.bin"), cache_policy, throttle_policy);
+///     let (cache, throttle) = init_cache_with_throttle(&cache_path, cache_policy, throttle_policy);
 ///
 ///     let client: ClientWithMiddleware = init_client_with_cache_and_throttle(cache, throttle);
 ///

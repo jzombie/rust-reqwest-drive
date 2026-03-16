@@ -1,19 +1,19 @@
 use reqwest_drive::{CachePolicy, DriveCache, DriveThrottleBackoff, ThrottlePolicy};
 use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
 use std::{sync::Arc, time::Duration};
-use tempdir::TempDir;
+use tempfile::TempDir;
 use tokio::time::Instant;
 
 #[tokio::main]
 async fn main() {
-    let temp_dir = TempDir::new("cache_test").unwrap();
+    let temp_dir = TempDir::new().unwrap();
     let cache_path = temp_dir.path().join("cache.bin");
 
     // Configure Cache Settings
     let cache_policy = CachePolicy {
         default_ttl: Duration::from_secs(60), // Cache responses for 60s
         respect_headers: true,                // Use headers for TTL when available
-        cache_status_override: None
+        cache_status_override: None,
     };
 
     // Configure Throttling & Backoff Settings
@@ -39,12 +39,12 @@ async fn main() {
 
     let start_time = Instant::now();
 
-    println!("Sending request to: {}", url);
+    tracing::info!("Sending request to: {}", url);
 
     let response = match client.get(url).send().await {
         Ok(resp) => resp,
         Err(err) => {
-            eprintln!("❌ Request failed after retries: {:?}", err);
+            tracing::error!("❌ Request failed after retries: {:?}", err);
             return;
         }
     };
@@ -52,12 +52,12 @@ async fn main() {
     let elapsed = start_time.elapsed();
 
     // Output Results
-    println!("✅ Final Response Status: {}", response.status());
+    tracing::info!("✅ Final Response Status: {}", response.status());
     if let Ok(body) = response.text().await {
-        println!("📜 Response Body: {}", body);
+        tracing::info!("📜 Response Body: {}", body);
     }
 
-    println!(
+    tracing::info!(
         "⏳ Total Time Taken (including retries & backoff): {:?}",
         elapsed
     );

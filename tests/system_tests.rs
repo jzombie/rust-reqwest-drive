@@ -1,21 +1,65 @@
 use reqwest_drive::{
-    init_cache, init_cache_with_drive, init_cache_with_drive_and_throttle,
-    init_cache_with_throttle, init_client_with_cache_and_throttle, CachePolicy, ThrottlePolicy,
+    CacheBust, CacheBypass, CachePolicy, ThrottlePolicy, init_cache, init_cache_process_scoped,
+    init_cache_process_scoped_with_throttle, init_cache_with_drive,
+    init_cache_with_drive_and_throttle, init_cache_with_throttle,
+    init_client_with_cache_and_throttle, init_throttle,
 };
 use reqwest_middleware::ClientBuilder;
 use simd_r_drive::DataStore;
+use std::env;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::time::Duration;
-use tempdir::TempDir;
-use tokio::sync::{mpsc, Barrier};
-use tokio::time::{sleep, Instant};
+use tempfile::TempDir;
+use tokio::sync::{Barrier, mpsc};
+use tokio::time::{Instant, sleep};
 use wiremock::{Mock, MockServer, ResponseTemplate};
+
+// Tests interact with filesystem discovery for process-scoped caches (the
+// crate discovers a `.cache` directory under the current working directory).
+// To avoid polluting the repository workspace during tests (or doctests) we
+// temporarily change the process working directory into a `tempfile::TempDir`.
+//
+// `CwdGuard` provides an RAII-style swap of the current working directory and
+// holds a global `Mutex` to serialize concurrent tests which might otherwise
+// race when changing the process-wide working directory.
+fn cwd_test_lock() -> &'static Mutex<()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+}
+
+struct CwdGuard {
+    previous: PathBuf,
+    _cwd_lock: MutexGuard<'static, ()>,
+}
+
+impl CwdGuard {
+    /// Atomically swap the process CWD to `path` and return a guard that will
+    /// restore the previous CWD on drop. The global lock prevents multiple
+    /// tests from changing the CWD at the same time which would produce races.
+    fn swap_to(path: &Path) -> std::io::Result<Self> {
+        let cwd_lock_guard = cwd_test_lock().lock().expect("acquire cwd test lock");
+        let previous = env::current_dir()?;
+        env::set_current_dir(path)?;
+        Ok(Self {
+            previous,
+            _cwd_lock: cwd_lock_guard,
+        })
+    }
+}
+
+impl Drop for CwdGuard {
+    fn drop(&mut self) {
+        // Best-effort restore; tests should not panic if restoring fails.
+        let _ = env::set_current_dir(&self.previous);
+    }
+}
 
 /// Test cache-only middleware
 #[tokio::test]
 async fn test_cache_middleware() {
-    let temp_dir = TempDir::new("cache_test").unwrap();
+    let temp_dir = TempDir::new().unwrap();
     let cache_path = temp_dir.path().join("cache.bin");
 
     let mock_server = MockServer::start().await;
@@ -53,10 +97,208 @@ async fn test_cache_middleware() {
     assert_eq!(second_body, "cached response");
 }
 
+#[tokio::test]
+async fn test_init_cache_process_scoped() {
+    let temp_root = TempDir::new().expect("create tempfile root");
+    // Swap the process CWD into a temp dir so the process-scoped cache
+    // discovery (which looks for a `.cache` folder under CWD) writes into
+    // `temp_root` instead of the repository workspace.
+    let _cwd_guard = CwdGuard::swap_to(temp_root.path()).expect("set cwd to tempfile root");
+
+    let mock_server = MockServer::start().await;
+
+    Mock::given(wiremock::matchers::method("GET"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_string("process scoped cache")
+                .insert_header("Cache-Control", "max-age=60"),
+        )
+        .expect(1)
+        .mount(&mock_server)
+        .await;
+
+    let cache = init_cache_process_scoped(CachePolicy::default())
+        .expect("failed to initialize process-scoped cache");
+
+    let client = ClientBuilder::new(reqwest::Client::new())
+        .with_arc(cache)
+        .build();
+
+    let url = mock_server.uri();
+
+    let first = client.get(&url).send().await.unwrap().text().await.unwrap();
+    let second = client.get(&url).send().await.unwrap().text().await.unwrap();
+
+    assert_eq!(first, "process scoped cache");
+    assert_eq!(second, "process scoped cache");
+
+    let discovered_group = temp_root.path().join(".cache").join(env!("CARGO_PKG_NAME"));
+    assert!(discovered_group.exists());
+}
+
+#[tokio::test]
+async fn test_init_cache_process_scoped_with_throttle() {
+    let temp_root = TempDir::new().expect("create tempfile root");
+    let _cwd_guard = CwdGuard::swap_to(temp_root.path()).expect("set cwd to tempfile root");
+
+    let mock_server = MockServer::start().await;
+
+    Mock::given(wiremock::matchers::method("GET"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_string("process scoped cache + throttle")
+                .insert_header("Cache-Control", "max-age=60"),
+        )
+        .expect(1)
+        .mount(&mock_server)
+        .await;
+
+    let (cache, throttle) = init_cache_process_scoped_with_throttle(
+        CachePolicy::default(),
+        ThrottlePolicy {
+            base_delay_ms: 50,
+            adaptive_jitter_ms: 0,
+            max_concurrent: 1,
+            max_retries: 0,
+        },
+    )
+    .expect("failed to initialize process-scoped cache with throttle");
+
+    let client = ClientBuilder::new(reqwest::Client::new())
+        .with_arc(cache)
+        .with_arc(throttle)
+        .build();
+
+    let url = mock_server.uri();
+
+    let first = client.get(&url).send().await.unwrap().text().await.unwrap();
+    let second = client.get(&url).send().await.unwrap().text().await.unwrap();
+
+    assert_eq!(first, "process scoped cache + throttle");
+    assert_eq!(second, "process scoped cache + throttle");
+
+    let discovered_group = temp_root.path().join(".cache").join(env!("CARGO_PKG_NAME"));
+    assert!(discovered_group.exists());
+}
+
+#[tokio::test]
+async fn test_cache_key_normalizes_query_param_order() {
+    let temp_dir = TempDir::new().unwrap();
+    let cache_path = temp_dir.path().join("cache_query_normalization.bin");
+
+    let mock_server = MockServer::start().await;
+
+    Mock::given(wiremock::matchers::method("GET"))
+        .respond_with(ResponseTemplate::new(200).set_body_string("query-normalized"))
+        .expect(1)
+        .mount(&mock_server)
+        .await;
+
+    let cache = init_cache(&cache_path, CachePolicy::default());
+
+    let client = ClientBuilder::new(reqwest::Client::new())
+        .with_arc(cache)
+        .build();
+
+    let url_a = format!("{}/query?a=1&b=2", mock_server.uri());
+    let url_b = format!("{}/query?b=2&a=1", mock_server.uri());
+
+    let first = client
+        .get(&url_a)
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+    let second = client
+        .get(&url_b)
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+
+    assert_eq!(first, "query-normalized");
+    assert_eq!(second, "query-normalized");
+}
+
+#[tokio::test]
+async fn test_cache_key_varies_on_accept_language_header() {
+    let temp_dir = TempDir::new().unwrap();
+    let cache_path = temp_dir.path().join("cache_vary_header.bin");
+
+    let mock_server = MockServer::start().await;
+
+    let request_counter = Arc::new(AtomicUsize::new(0));
+    let counter_clone = Arc::clone(&request_counter);
+
+    Mock::given(wiremock::matchers::method("GET"))
+        .respond_with(move |req: &wiremock::Request| {
+            let _ = counter_clone.fetch_add(1, Ordering::SeqCst);
+            let lang = req
+                .headers
+                .get("accept-language")
+                .map(|v| String::from_utf8_lossy(v.as_bytes()).to_string())
+                .unwrap_or_else(|| "none".to_string());
+
+            ResponseTemplate::new(200)
+                .set_body_string(format!("lang={}", lang))
+                .insert_header("Cache-Control", "max-age=60")
+        })
+        .expect(2)
+        .mount(&mock_server)
+        .await;
+
+    let cache = init_cache(&cache_path, CachePolicy::default());
+
+    let client = ClientBuilder::new(reqwest::Client::new())
+        .with_arc(cache)
+        .build();
+
+    let url = format!("{}/vary", mock_server.uri());
+
+    let en = client
+        .get(&url)
+        .header("accept-language", "en-US")
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+
+    let fr = client
+        .get(&url)
+        .header("accept-language", "fr-FR")
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+
+    let en_cached = client
+        .get(&url)
+        .header("accept-language", "en-US")
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+
+    assert_eq!(en, "lang=en-US");
+    assert_eq!(fr, "lang=fr-FR");
+    assert_eq!(en_cached, "lang=en-US");
+    assert_eq!(request_counter.load(Ordering::SeqCst), 2);
+}
+
 /// Test throttling middleware with retries
 #[tokio::test]
 async fn test_throttling_behavior() {
-    let temp_dir = TempDir::new("cache_test").unwrap();
+    let temp_dir = TempDir::new().unwrap();
     let cache_path = temp_dir.path().join("cache.bin");
 
     let mock_server = MockServer::start().await;
@@ -109,9 +351,10 @@ async fn test_throttling_behavior() {
             min_expected_delay, elapsed
         );
     } else if elapsed > max_expected_delay {
-        eprintln!(
+        tracing::warn!(
             "⚠️ Warning: Throttling took longer than expected. Expected at most {:?}, but got {:?}",
-            max_expected_delay, elapsed
+            max_expected_delay,
+            elapsed
         );
     }
 
@@ -128,9 +371,10 @@ async fn test_throttling_behavior() {
         );
 
         if delay_between_requests > max_per_request {
-            eprintln!(
+            tracing::warn!(
                 "⚠️ Warning: Request spacing exceeded max expected ({:?}). Got {:?}",
-                max_per_request, delay_between_requests
+                max_per_request,
+                delay_between_requests
             );
         }
     }
@@ -139,7 +383,7 @@ async fn test_throttling_behavior() {
 /// Test cache expiration after TTL
 #[tokio::test]
 async fn test_cache_expiration() {
-    let temp_dir = TempDir::new("cache_test").unwrap();
+    let temp_dir = TempDir::new().unwrap();
     let cache_path = temp_dir.path().join("cache.bin");
 
     let mock_server = MockServer::start().await;
@@ -184,7 +428,7 @@ async fn test_cache_expiration() {
 
 #[tokio::test]
 async fn test_backoff_on_server_error() {
-    let temp_dir = TempDir::new("cache_test").unwrap();
+    let temp_dir = TempDir::new().unwrap();
     let cache_path = temp_dir.path().join("cache.bin");
 
     let mock_server = MockServer::start().await;
@@ -240,16 +484,17 @@ async fn test_backoff_on_server_error() {
         elapsed
     );
     if elapsed > max_expected_delay {
-        eprintln!(
+        tracing::warn!(
             "⚠️ Warning: Backoff took longer than expected. Expected at most {:?}, but got {:?}",
-            max_expected_delay, elapsed
+            max_expected_delay,
+            elapsed
         );
     }
 }
 
 #[tokio::test]
 async fn test_backoff_with_eventual_success() {
-    let temp_dir = TempDir::new("cache_test").unwrap();
+    let temp_dir = TempDir::new().unwrap();
     let cache_path = temp_dir.path().join("cache.bin");
 
     let mock_server = MockServer::start().await;
@@ -320,9 +565,10 @@ async fn test_backoff_with_eventual_success() {
         elapsed
     );
     if elapsed > max_expected_delay {
-        eprintln!(
+        tracing::warn!(
             "⚠️ Warning: Backoff took longer than expected. Expected at most {:?}, but got {:?}",
-            max_expected_delay, elapsed
+            max_expected_delay,
+            elapsed
         );
     }
 
@@ -337,7 +583,7 @@ async fn test_backoff_with_eventual_success() {
 
 #[tokio::test]
 async fn test_init_cache_with_throttle() {
-    let temp_dir = TempDir::new("cache_throttle_test").unwrap();
+    let temp_dir = TempDir::new().unwrap();
     let cache_path = temp_dir.path().join("cache_throttle.bin");
 
     let mock_server = MockServer::start().await;
@@ -398,15 +644,16 @@ async fn test_init_cache_with_throttle() {
         "Second request was not instant despite caching!"
     );
 
-    println!(
+    tracing::info!(
         "Test passed! First request took {:?}, second request took {:?} (should be cached).",
-        elapsed_1, elapsed_2
+        elapsed_1,
+        elapsed_2
     );
 }
 
 #[tokio::test]
 async fn test_with_drive_arc() {
-    let temp_dir = TempDir::new("cache_drive_test").unwrap();
+    let temp_dir = TempDir::new().unwrap();
     let cache_path = temp_dir.path().join("cache_drive.bin");
 
     let mock_server = MockServer::start().await;
@@ -450,12 +697,12 @@ async fn test_with_drive_arc() {
     // Ensure the second request is served from cache
     assert_eq!(second_body, "cached response");
 
-    println!("`init_cache_with_drive` successfully initialized and cached responses.");
+    tracing::info!("`init_cache_with_drive` successfully initialized and cached responses.");
 }
 
 #[tokio::test]
 async fn test_with_drive_arc_and_throttle() {
-    let temp_dir = TempDir::new("cache_drive_throttle_test").unwrap();
+    let temp_dir = TempDir::new().unwrap();
     let cache_path = temp_dir.path().join("cache_drive_throttle.bin");
 
     let mock_server = MockServer::start().await;
@@ -515,9 +762,10 @@ async fn test_with_drive_arc_and_throttle() {
             min_expected_delay, elapsed
         );
     } else if elapsed > max_expected_delay {
-        eprintln!(
+        tracing::warn!(
             "⚠️ Warning: Throttling took longer than expected. Expected at most {:?}, but got {:?}",
-            max_expected_delay, elapsed
+            max_expected_delay,
+            elapsed
         );
     }
 
@@ -534,14 +782,15 @@ async fn test_with_drive_arc_and_throttle() {
         );
 
         if delay_between_requests > max_per_request {
-            eprintln!(
+            tracing::warn!(
                 "⚠️ Warning: Request spacing exceeded max expected ({:?}). Got {:?}",
-                max_per_request, delay_between_requests
+                max_per_request,
+                delay_between_requests
             );
         }
     }
 
-    println!("`init_cache_with_drive_and_throttle` successfully enforced throttling.");
+    tracing::info!("`init_cache_with_drive_and_throttle` successfully enforced throttling.");
 }
 
 // TODO: This is just a basic test, and more tests could be added which excersize things like
@@ -549,7 +798,7 @@ async fn test_with_drive_arc_and_throttle() {
 //  - other status codes
 #[tokio::test]
 async fn test_cache_status_override() {
-    let temp_dir = TempDir::new("cache_status_override_test").unwrap();
+    let temp_dir = TempDir::new().unwrap();
     let cache_path = temp_dir.path().join("cache_override.bin");
 
     let mock_server = MockServer::start().await;
@@ -629,7 +878,7 @@ async fn test_cache_status_override() {
 /// Test that multiple requests run concurrently within throttling constraints.
 #[tokio::test]
 async fn test_concurrent_requests_without_cache() {
-    let temp_dir = TempDir::new("concurrent_test").unwrap();
+    let temp_dir = TempDir::new().unwrap();
     let cache_path = temp_dir.path().join("cache_concurrent.bin");
 
     let mock_server = MockServer::start().await;
@@ -724,7 +973,7 @@ async fn test_concurrent_requests_without_cache() {
 /// Test that the throttle enforces max_concurrent requests correctly.
 #[tokio::test]
 async fn test_throttling_respects_max_concurrent() {
-    let temp_dir = TempDir::new("throttle_test").unwrap();
+    let temp_dir = TempDir::new().unwrap();
     let cache_path = temp_dir.path().join("cache_throttle_test.bin");
 
     let mock_server = MockServer::start().await;
@@ -782,7 +1031,7 @@ async fn test_throttling_respects_max_concurrent() {
 
                 let start_time = Instant::now();
 
-                eprintln!("Awaiting the lock...");
+                tracing::debug!("Awaiting the lock...");
 
                 // Acquire permit from the throttle middleware
                 // let _permit = throttle.acquire().await;
@@ -790,7 +1039,7 @@ async fn test_throttling_respects_max_concurrent() {
                 // Track the maximum number of concurrent requests seen
                 let current_in_flight = max_concurrent - throttle.available_permits();
 
-                eprintln!("Current in flight: {}", current_in_flight);
+                tracing::debug!("Current in flight: {}", current_in_flight);
 
                 max_seen.fetch_max(current_in_flight, Ordering::SeqCst);
 
@@ -798,8 +1047,7 @@ async fn test_throttling_respects_max_concurrent() {
                 let body = response.text().await.unwrap();
                 assert_eq!(body, "throttled response");
 
-                let elapsed_time = start_time.elapsed();
-                elapsed_time
+                start_time.elapsed()
             })
         })
         .collect();
@@ -819,15 +1067,16 @@ async fn test_throttling_respects_max_concurrent() {
         max_seen
     );
 
-    println!(
+    tracing::info!(
         "✅ Throttling enforced correctly! Max concurrent requests: {} (expected {}).",
-        max_seen, max_concurrent
+        max_seen,
+        max_concurrent
     );
 }
 
 #[tokio::test]
 async fn test_throttle_policy_override() {
-    let temp_dir = TempDir::new("throttle_override_test").unwrap();
+    let temp_dir = TempDir::new().unwrap();
     let cache_path = temp_dir.path().join("cache_throttle_override.bin");
 
     let mock_server = MockServer::start().await;
@@ -913,16 +1162,141 @@ async fn test_throttle_policy_override() {
         elapsed
     );
     if elapsed > max_expected_delay {
-        eprintln!(
+        tracing::warn!(
             "⚠️ Warning: Backoff took longer than expected. Expected at most {:?}, but got {:?}",
-            max_expected_delay, elapsed
+            max_expected_delay,
+            elapsed
         );
     }
 }
 
 #[tokio::test]
+async fn test_per_request_cache_bypass_with_throttle_and_shared_store() {
+    let temp_dir = TempDir::new().unwrap();
+    let cache_path = temp_dir.path().join("cache_bypass.bin");
+
+    let mock_server = MockServer::start().await;
+
+    let request_counter = Arc::new(AtomicUsize::new(0));
+    let counter_clone = Arc::clone(&request_counter);
+
+    Mock::given(wiremock::matchers::method("GET"))
+        .respond_with(move |_: &wiremock::Request| {
+            let count = counter_clone.fetch_add(1, Ordering::SeqCst);
+            ResponseTemplate::new(200)
+                .set_body_string(format!("server-response-{}", count))
+                .insert_header("Cache-Control", "max-age=60")
+        })
+        .expect(2)
+        .mount(&mock_server)
+        .await;
+
+    let cache_policy = CachePolicy::default();
+    let throttle_policy = ThrottlePolicy {
+        base_delay_ms: 100,
+        adaptive_jitter_ms: 0,
+        max_concurrent: 1,
+        max_retries: 0,
+    };
+
+    let (cache, throttle) = init_cache_with_throttle(&cache_path, cache_policy, throttle_policy);
+
+    let client = ClientBuilder::new(reqwest::Client::new())
+        .with_arc(cache)
+        .with_arc(throttle)
+        .build();
+
+    let url = format!("{}/cache-bypass", mock_server.uri());
+
+    let first = client.get(&url).send().await.unwrap().text().await.unwrap();
+    assert_eq!(first, "server-response-0");
+
+    let second = client.get(&url).send().await.unwrap().text().await.unwrap();
+    assert_eq!(second, "server-response-0");
+
+    let bypass_start = Instant::now();
+    let mut bypass_request = client.get(&url);
+    bypass_request.extensions().insert(CacheBypass(true));
+    let third = bypass_request.send().await.unwrap().text().await.unwrap();
+    let bypass_elapsed = bypass_start.elapsed();
+
+    assert_eq!(third, "server-response-1");
+    assert!(
+        bypass_elapsed >= Duration::from_millis(100),
+        "Bypassed request should still be throttled"
+    );
+
+    let fourth = client.get(&url).send().await.unwrap().text().await.unwrap();
+    assert_eq!(fourth, "server-response-0");
+
+    assert_eq!(request_counter.load(Ordering::SeqCst), 2);
+}
+
+#[tokio::test]
+async fn test_per_request_cache_bust_refreshes_cached_value() {
+    let temp_dir = TempDir::new().unwrap();
+    let cache_path = temp_dir.path().join("cache_bust.bin");
+
+    let mock_server = MockServer::start().await;
+
+    let request_counter = Arc::new(AtomicUsize::new(0));
+    let counter_clone = Arc::clone(&request_counter);
+
+    Mock::given(wiremock::matchers::method("GET"))
+        .respond_with(move |_: &wiremock::Request| {
+            let count = counter_clone.fetch_add(1, Ordering::SeqCst);
+            ResponseTemplate::new(200)
+                .set_body_string(format!("server-response-{}", count))
+                .insert_header("Cache-Control", "max-age=60")
+        })
+        .expect(2)
+        .mount(&mock_server)
+        .await;
+
+    let cache_policy = CachePolicy::default();
+    let throttle_policy = ThrottlePolicy {
+        base_delay_ms: 100,
+        adaptive_jitter_ms: 0,
+        max_concurrent: 1,
+        max_retries: 0,
+    };
+
+    let (cache, throttle) = init_cache_with_throttle(&cache_path, cache_policy, throttle_policy);
+
+    let client = ClientBuilder::new(reqwest::Client::new())
+        .with_arc(cache)
+        .with_arc(throttle)
+        .build();
+
+    let url = format!("{}/cache-bust", mock_server.uri());
+
+    let first = client.get(&url).send().await.unwrap().text().await.unwrap();
+    assert_eq!(first, "server-response-0");
+
+    let second = client.get(&url).send().await.unwrap().text().await.unwrap();
+    assert_eq!(second, "server-response-0");
+
+    let bust_start = Instant::now();
+    let mut bust_request = client.get(&url);
+    bust_request.extensions().insert(CacheBust(true));
+    let third = bust_request.send().await.unwrap().text().await.unwrap();
+    let bust_elapsed = bust_start.elapsed();
+
+    assert_eq!(third, "server-response-1");
+    assert!(
+        bust_elapsed >= Duration::from_millis(100),
+        "Busted request should still be throttled"
+    );
+
+    let fourth = client.get(&url).send().await.unwrap().text().await.unwrap();
+    assert_eq!(fourth, "server-response-1");
+
+    assert_eq!(request_counter.load(Ordering::SeqCst), 2);
+}
+
+#[tokio::test]
 async fn test_init_client_with_cache_and_throttle() {
-    let temp_dir = TempDir::new("client_cache_throttle_test").unwrap();
+    let temp_dir = TempDir::new().unwrap();
     let cache_path = temp_dir.path().join("client_cache_throttle.bin");
 
     let mock_server = MockServer::start().await;
@@ -980,8 +1354,108 @@ async fn test_init_client_with_cache_and_throttle() {
         "Second request was not instant despite caching!"
     );
 
-    println!(
+    tracing::info!(
         "Test passed! First request took {:?}, second request took {:?} (should be cached).",
-        elapsed_1, elapsed_2
+        elapsed_1,
+        elapsed_2
+    );
+}
+
+#[tokio::test]
+async fn test_init_throttle_without_store_enforces_base_delay() {
+    let mock_server = MockServer::start().await;
+
+    let response_template = ResponseTemplate::new(200).set_body_string("throttle-only response");
+
+    Mock::given(wiremock::matchers::method("GET"))
+        .respond_with(response_template)
+        .expect(3)
+        .mount(&mock_server)
+        .await;
+
+    let throttle_policy = ThrottlePolicy {
+        base_delay_ms: 120,
+        adaptive_jitter_ms: 0,
+        max_concurrent: 1,
+        max_retries: 0,
+    };
+
+    let throttle = init_throttle(throttle_policy);
+
+    let client = ClientBuilder::new(reqwest::Client::new())
+        .with_arc(throttle)
+        .build();
+
+    let start = Instant::now();
+
+    for i in 0..3 {
+        let url = format!("{}/throttle-only-{}", mock_server.uri(), i);
+        let response = client.get(&url).send().await.unwrap();
+        assert_eq!(response.status(), 200);
+        assert_eq!(response.text().await.unwrap(), "throttle-only response");
+    }
+
+    let elapsed = start.elapsed();
+    let min_expected_delay = Duration::from_millis(360);
+
+    assert!(
+        elapsed >= min_expected_delay,
+        "Throttle-only mode was too fast. Expected at least {:?}, got {:?}",
+        min_expected_delay,
+        elapsed
+    );
+}
+
+#[tokio::test]
+async fn test_init_throttle_without_store_retries_then_succeeds() {
+    let mock_server = MockServer::start().await;
+
+    let error_template = ResponseTemplate::new(500);
+    let success_template = ResponseTemplate::new(200).set_body_string("eventual success");
+
+    let request_counter = Arc::new(AtomicUsize::new(0));
+    let counter_clone = Arc::clone(&request_counter);
+
+    Mock::given(wiremock::matchers::method("GET"))
+        .respond_with(move |_: &wiremock::Request| {
+            let count = counter_clone.fetch_add(1, Ordering::SeqCst);
+            if count < 2 {
+                error_template.clone()
+            } else {
+                success_template.clone()
+            }
+        })
+        .expect(3)
+        .mount(&mock_server)
+        .await;
+
+    let throttle_policy = ThrottlePolicy {
+        base_delay_ms: 100,
+        adaptive_jitter_ms: 0,
+        max_concurrent: 1,
+        max_retries: 2,
+    };
+
+    let throttle = init_throttle(throttle_policy);
+
+    let client = ClientBuilder::new(reqwest::Client::new())
+        .with_arc(throttle)
+        .build();
+
+    let start = Instant::now();
+    let url = format!("{}/throttle-only-retry", mock_server.uri());
+    let response = client.get(&url).send().await.unwrap();
+    let elapsed = start.elapsed();
+
+    assert_eq!(response.status(), 200);
+    assert_eq!(response.text().await.unwrap(), "eventual success");
+    assert_eq!(request_counter.load(Ordering::SeqCst), 3);
+
+    let min_expected = Duration::from_millis(700);
+    assert!(
+        elapsed >= min_expected,
+        "Retry/backoff delay was too short. Expected at least {:?}, got {:?}",
+        min_expected,
+        elapsed
     );
 }

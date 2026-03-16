@@ -1,19 +1,19 @@
 use reqwest_drive::{CachePolicy, DriveCache, DriveThrottleBackoff, ThrottlePolicy};
 use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
 use std::{sync::Arc, time::Duration};
-use tempdir::TempDir;
+use tempfile::TempDir;
 use tokio::time::Instant;
 
 #[tokio::main]
 async fn main() {
-    let temp_dir = TempDir::new("cache_test").unwrap();
+    let temp_dir = TempDir::new().unwrap();
     let cache_path = temp_dir.path().join("cache.bin");
 
     // Configure Cache Settings
     let cache_policy = CachePolicy {
         default_ttl: Duration::from_secs(60), // Cache responses for 60s
         respect_headers: true,                // Use headers for TTL when available
-        cache_status_override: None
+        cache_status_override: None,
     };
 
     // Configure Throttling & Backoff Settings
@@ -39,48 +39,49 @@ async fn main() {
 
     // First request: Expect delay due to throttling
     let start_time_1 = Instant::now();
-    println!("🌍 Sending first request to: {}", url);
+    tracing::info!("🌍 Sending first request to: {}", url);
 
     let response_1 = match client.get(url).send().await {
         Ok(resp) => resp,
         Err(err) => {
-            eprintln!("❌ First request failed after retries: {:?}", err);
+            tracing::error!("❌ First request failed after retries: {:?}", err);
             return;
         }
     };
 
     let elapsed_1 = start_time_1.elapsed();
 
-    println!("✅ First Request Status: {}", response_1.status());
-    println!(
+    tracing::info!("✅ First Request Status: {}", response_1.status());
+    tracing::info!(
         "⏳ First Request Time (including throttling): {:?}",
         elapsed_1
     );
 
     // Second request: Expect near-instant response due to caching
     let start_time_2 = Instant::now();
-    println!("🌍 Sending second request to: {}", url);
+    tracing::info!("🌍 Sending second request to: {}", url);
 
     let response_2 = match client.get(url).send().await {
         Ok(resp) => resp,
         Err(err) => {
-            eprintln!("❌ Second request failed: {:?}", err);
+            tracing::error!("❌ Second request failed: {:?}", err);
             return;
         }
     };
 
     let elapsed_2 = start_time_2.elapsed();
 
-    println!("✅ Second Request Status: {}", response_2.status());
-    println!(
+    tracing::info!("✅ Second Request Status: {}", response_2.status());
+    tracing::info!(
         "⚡ Second Request Time (should be fast due to cache): {:?}",
         elapsed_2
     );
 
     // Compare timings
-    println!(
+    tracing::info!(
         "\n📊 Comparison: First request took {:?}, second request took {:?} (expected near-instant)",
-        elapsed_1, elapsed_2
+        elapsed_1,
+        elapsed_2
     );
 
     // Ensure cache actually worked (second request should be much faster)

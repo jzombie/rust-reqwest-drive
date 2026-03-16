@@ -1,27 +1,46 @@
 [package]
 name = "reqwest-drive"
-version = "0.1.0-alpha.9"
+# Generally tracks a compatible upstream `reqwest` release to reduce version ambiguity, while still allowing independent updates when needed
+version = "0.13.2-alpha"
 authors = ["Jeremy Harris <jeremy.harris@zenosmosis.com>"]
 description = "High-performance caching, throttling, and backoff middleware for reqwest, with a single-file storage container."
 repository = "https://github.com/jzombie/rust-reqwest-drive"
-edition = "2021"
-license = "Apache-2.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+categories = ["web-programming", "network-programming", "caching", "asynchronous"]
+keywords = ["reqwest", "middleware", "cache", "throttle", "backoff"]
+
+[workspace.dependencies]
+async-trait = "0.1.89"
+bitcode = "0.6.9"
+bytes = "1.11.1"
+cache-manager = "0.3.1"
+chrono = "0.4.44"
+http = "1.4.0"
+rand = "0.10.0"
+reqwest = "0.13.2"
+reqwest-middleware = "0.5.1"
+simd-r-drive = "0.15.5-alpha"
+tempfile = "3.27.0"
+tokio = "1.50.0"
+tracing = "0.1.44"
+wiremock = "0.6.5"
 
 [dependencies]
-async-trait = "0.1.88"
-bincode = "1.3.3"
-bytes = "1.10.1"
-chrono = "0.4.40"
-http = "1.3.1"
-rand = "0.9.0"
-reqwest = "0.12.15"
-reqwest-middleware = "0.4.1"
-serde = { version = "1.0.219", features = ["derive"] }
-simd-r-drive = "0.3.0-alpha.1"
-tokio = "1.44.1"
+async-trait.workspace = true
+bitcode.workspace = true
+bytes.workspace = true
+cache-manager = { workspace = true, features = ["process-scoped-cache"] }
+chrono.workspace = true
+http.workspace = true
+rand.workspace = true
+reqwest.workspace = true
+reqwest-middleware.workspace = true
+simd-r-drive.workspace = true
+tokio.workspace = true
+tracing.workspace = true
 
 [dev-dependencies]
-wiremock = "0.6.3"
-tokio = { version = "1.44.1", features = ["rt-multi-thread"] }
-tempdir = "0.3.7"
-doc-comment = "0.3.3"
+tempfile.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread"] }
+wiremock.workspace = true

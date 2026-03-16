@@ -1,12 +1,15 @@
-use crate::DriveCache;
+use crate::{
+    DriveCache,
+    cache_middleware::{CacheBust, CacheBypass},
+};
 use async_trait::async_trait;
 use http::Extensions;
-use rand::Rng;
+use rand::RngExt;
 use reqwest::{Request, Response};
 use reqwest_middleware::{Error, Middleware, Next};
 use std::sync::Arc;
 use tokio::sync::Semaphore;
-use tokio::time::{sleep, Duration};
+use tokio::time::{Duration, sleep};
 
 /// Defines the throttling and backoff behavior for handling HTTP requests.
 ///
@@ -66,6 +69,10 @@ impl Default for ThrottlePolicy {
 /// between retries, helping to prevent rate-limiting issues when interacting
 /// with APIs that enforce request quotas.
 ///
+/// It can run in two modes:
+/// - **Cache-aware mode** via [`DriveThrottleBackoff::new`], where cached requests can bypass throttling.
+/// - **Throttle-only mode** via [`DriveThrottleBackoff::without_cache`], where all requests are throttled.
+///
 /// Requests are throttled using a **semaphore-based** approach, ensuring that
 /// the maximum number of concurrent requests does not exceed `max_concurrent`.
 ///
@@ -78,8 +85,8 @@ pub struct DriveThrottleBackoff {
     /// Defines the backoff and throttling behavior.
     policy: ThrottlePolicy,
 
-    /// Cache layer for detecting previously cached responses.
-    cache: Arc<DriveCache>,
+    /// Optional cache layer for detecting previously cached responses.
+    cache: Option<Arc<DriveCache>>,
 }
 
 impl DriveThrottleBackoff {
@@ -97,11 +104,22 @@ impl DriveThrottleBackoff {
         Self {
             semaphore: Arc::new(Semaphore::new(policy.max_concurrent)),
             policy,
-            cache,
+            cache: Some(cache),
         }
     }
 
-    #[cfg(any(test, debug_assertions))]
+    /// Creates a new `DriveThrottleBackoff` middleware without any cache integration.
+    ///
+    /// In this mode, every request is throttled based on the configured policy,
+    /// and no cache checks are performed.
+    pub fn without_cache(policy: ThrottlePolicy) -> Self {
+        Self {
+            semaphore: Arc::new(Semaphore::new(policy.max_concurrent)),
+            policy,
+            cache: None,
+        }
+    }
+
     pub fn available_permits(&self) -> usize {
         self.semaphore.available_permits()
     }
@@ -112,7 +130,7 @@ impl Middleware for DriveThrottleBackoff {
     /// Handles throttling and retry logic for HTTP requests.
     ///
     /// This method:
-    /// 1. **Checks the cache**: If the request is already cached, it bypasses throttling.
+    /// 1. **Optionally checks the cache**: In cache-aware mode, cached requests bypass throttling.
     /// 2. **Enforces concurrency limits**: Ensures no more than `max_concurrent` requests are in flight.
     /// 3. **Applies an initial delay** before sending the request.
     /// 4. **Retries failed requests**: Uses **exponential backoff** with jitter for failed requests.
@@ -131,7 +149,8 @@ impl Middleware for DriveThrottleBackoff {
     ///
     /// # Behavior
     ///
-    /// - If the request is **already cached**, the middleware immediately forwards it.
+    /// - In cache-aware mode, if the request is **already cached**, the middleware immediately forwards it.
+    /// - In throttle-only mode, cache checks are skipped.
     /// - If **throttling is required**, it waits according to the configured delay.
     /// - If a request fails, **exponential backoff** is applied before retrying.
     async fn handle(
@@ -141,15 +160,28 @@ impl Middleware for DriveThrottleBackoff {
         next: Next<'_>,
     ) -> Result<Response, Error> {
         let url = req.url().to_string();
+        let bypass_cache = extensions
+            .get::<CacheBypass>()
+            .map(|flag| flag.0)
+            .unwrap_or(false);
+        let bust_cache = extensions
+            .get::<CacheBust>()
+            .map(|flag| flag.0)
+            .unwrap_or(false);
 
         let cache_key = format!("{} {}", req.method(), &url);
 
-        if self.cache.is_cached(&req).await {
-            eprintln!("Using cache for: {}", &cache_key);
+        if !bypass_cache
+            && !bust_cache
+            && let Some(cache) = &self.cache
+        {
+            if cache.is_cached(&req).await {
+                tracing::debug!("Using cache for: {}", &cache_key);
 
-            return next.run(req, extensions).await;
-        } else {
-            eprintln!("No cache found for: {}", &cache_key);
+                return next.run(req, extensions).await;
+            } else {
+                tracing::debug!("No cache found for: {}", &cache_key);
+            }
         }
 
         // Use a custom throttle policy if provided, otherwise default to `self.policy`
@@ -158,7 +190,7 @@ impl Middleware for DriveThrottleBackoff {
 
         // Log if the permit is not immediately available
         if self.semaphore.available_permits() == 0 {
-            eprintln!("Waiting for permit... ({} in use)", policy.max_concurrent);
+            tracing::debug!("Waiting for permit... ({} in use)", policy.max_concurrent);
         }
 
         // Acquire the permit and log when granted
@@ -168,7 +200,7 @@ impl Middleware for DriveThrottleBackoff {
             .await
             .map_err(|e| Error::Middleware(e.into()))?;
 
-        eprintln!(
+        tracing::debug!(
             "Permit granted: {} ({} permits left)",
             cache_key,
             self.semaphore.available_permits()
@@ -199,7 +231,7 @@ impl Middleware for DriveThrottleBackoff {
                         )
                     };
 
-                    eprintln!(
+                    tracing::debug!(
                         "Retry {}/{} for URL {} after {} ms",
                         attempt,
                         policy.max_retries,
@@ -217,5 +249,50 @@ impl Middleware for DriveThrottleBackoff {
         }
 
         next.run(req, extensions).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use reqwest_middleware::ClientBuilder;
+
+    #[test]
+    fn throttle_policy_default_values_are_stable() {
+        let policy = ThrottlePolicy::default();
+
+        assert_eq!(policy.base_delay_ms, 500);
+        assert_eq!(policy.adaptive_jitter_ms, 250);
+        assert_eq!(policy.max_concurrent, 5);
+        assert_eq!(policy.max_retries, 3);
+    }
+
+    #[tokio::test]
+    async fn closed_semaphore_returns_middleware_error() {
+        let throttle = Arc::new(DriveThrottleBackoff::without_cache(ThrottlePolicy {
+            base_delay_ms: 1,
+            adaptive_jitter_ms: 0,
+            max_concurrent: 1,
+            max_retries: 0,
+        }));
+
+        // Force semaphore acquire to fail so we cover the map_err path.
+        throttle.semaphore.close();
+
+        let client = ClientBuilder::new(reqwest::Client::new())
+            .with_arc(throttle)
+            .build();
+
+        let error = client
+            .get("https://example.test/closed-semaphore")
+            .send()
+            .await
+            .expect_err("closed semaphore should return middleware error");
+
+        assert!(
+            matches!(error, reqwest_middleware::Error::Middleware(_)),
+            "expected middleware error variant, got: {:?}",
+            error
+        );
     }
 }
