@@ -4,6 +4,8 @@
 [![Docs.rs](https://docs.rs/reqwest-drive/badge.svg)](https://docs.rs/reqwest-drive)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
+**THIS API IS A WORK IN PROGRESS.**
+
 High-performance caching, throttling, and backoff middleware for [reqwest](https://crates.io/crates/reqwest), powered by **SIMD-accelerated** single-file storage.
 
 ## Overview
