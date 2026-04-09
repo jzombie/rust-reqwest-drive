@@ -22,7 +22,7 @@ reqwest = "0.13.2"
 reqwest-middleware = "0.5.1"
 simd-r-drive = "0.16.0-alpha"
 tempfile = "3.27.0"
-tokio = "1.50.0"
+tokio = "1.51.0"
 tracing = "0.1.44"
 wiremock = "0.6.5"
 
