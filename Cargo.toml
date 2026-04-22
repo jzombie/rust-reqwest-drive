@@ -1,7 +1,7 @@
 [package]
 name = "reqwest-drive"
 # Generally tracks a compatible upstream `reqwest` release to reduce version ambiguity, while still allowing independent updates when needed
-version = "0.13.2-alpha.2"
+version = "0.13.2-alpha.3"
 authors = ["Jeremy Harris <jeremy.harris@zenosmosis.com>"]
 description = "High-performance caching, throttling, and backoff middleware for reqwest, with a single-file storage container."
 repository = "https://github.com/jzombie/rust-reqwest-drive"
