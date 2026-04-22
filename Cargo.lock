@@ -1672,9 +1672,9 @@ checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
 
 [[package]]
 name = "simd-r-drive"
-version = "0.16.0-alpha"
+version = "0.16.1-alpha"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9afd92a41b82934c0f021ce9795e005e9fe24b27d43a54ab5a2a857d1a2b4468"
+checksum = "e1343726739fd275093d8109971487f4bbf049388d170df829d3f50af48b24c1"
 dependencies = [
  "async-trait",
  "clap",
@@ -1690,9 +1690,9 @@ dependencies = [
 
 [[package]]
 name = "simd-r-drive-entry-handle"
-version = "0.16.0-alpha"
+version = "0.16.1-alpha"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b0fbd3cbea77f73c9acf0463021c5b040973009f60dcd1b3adcd192165c364a0"
+checksum = "ed004507195ff356ffcf3acdac91c63d7c085c72062b1c4723af98122bd450d9"
 dependencies = [
  "crc32fast",
  "memmap2",
