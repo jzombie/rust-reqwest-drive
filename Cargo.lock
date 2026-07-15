@@ -193,9 +193,9 @@ checksum = "1e748733b7cbc798e1434b6ac524f0c1ff2ab456fe201501e6497c8417a4fc33"
 
 [[package]]
 name = "cache-manager"
-version = "0.4.0"
+version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3f4c9910c978b82ae60dfcad7e192ae6006ee039a886376c71ea1b675cecf59b"
+checksum = "b73304a3453d2acdff1b2a3c4fce7cdcf53d4aa8b440525683746a07a7ad8628"
 dependencies = [
  "tempfile",
 ]
