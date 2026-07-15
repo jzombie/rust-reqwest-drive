@@ -169,7 +169,7 @@ impl Middleware for DriveThrottleBackoff {
             .map(|flag| flag.0)
             .unwrap_or(false);
 
-        let cache_key = format!("{} {}", req.method(), &url);
+        let cache_key = format!("{} {}", req.method(), url);
 
         if !bypass_cache
             && !bust_cache

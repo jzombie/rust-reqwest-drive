@@ -1,7 +1,7 @@
 [package]
 name = "reqwest-drive"
 # Generally tracks a compatible upstream `reqwest` release to reduce version ambiguity, while still allowing independent updates when needed
-version = "0.13.3-alpha"
+version = "0.13.4-alpha"
 authors = ["Jeremy Harris <jeremy.harris@zenosmosis.com>"]
 description = "High-performance caching, throttling, and backoff middleware for reqwest, with a single-file storage container."
 repository = "https://github.com/jzombie/rust-reqwest-drive"
@@ -14,13 +14,13 @@ keywords = ["reqwest", "middleware", "cache", "throttle", "backoff"]
 async-trait = "0.1.89"
 bitcode = "0.6.9"
 bytes = "1.11.1"
-cache-manager = "0.4.0"
-chrono = "0.4.44"
-http = "1.4.0"
+cache-manager = "0.4.1"
+chrono = "0.4.45"
+http = "1.4.1"
 rand = "0.10.1"
-reqwest = "0.13.3"
-reqwest-middleware = "0.5.1"
-simd-r-drive = "0.16.2-alpha"
+reqwest = "0.13.4"
+reqwest-middleware = "0.5.2"
+simd-r-drive = "0.16.3-alpha"
 tempfile = "3.27.0"
 tokio = "1.52.3"
 tracing = "0.1.44"
