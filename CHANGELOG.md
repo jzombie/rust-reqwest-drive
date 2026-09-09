@@ -17,3 +17,4 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/) and this 
   - `rand` 0.10.1 -> 0.10.2 (#40)
   - `http` 1.4.1 -> 1.4.2 (#41)
   - `chacha20` 0.10.0 -> 0.10.2 (`cargo deny check`)
+  - `h2` 0.4.8 -> 0.4.19 (fixes RUSTSEC-2026-0258, `cargo deny check`)
