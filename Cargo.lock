@@ -144,6 +144,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
 
 [[package]]
+name = "base64"
+version = "0.23.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ac07cdecf99051d9a5238b80f35af32cdeba5b336e55d957b318b50137e18da5"
+
+[[package]]
 name = "bitcode"
 version = "0.6.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -743,7 +749,7 @@ version = "0.1.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "96547c2556ec9d12fb1578c4eaf448b04993e7fb79cbaad930a656880a6bdfa0"
 dependencies = [
- "base64",
+ "base64 0.22.1",
  "bytes",
  "futures-channel",
  "futures-util",
@@ -1339,11 +1345,11 @@ checksum = "2b15c43186be67a4fd63bee50d0303afffcef381492ebe2c5d87f324e1b8815c"
 
 [[package]]
 name = "reqwest"
-version = "0.13.4"
+version = "0.13.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "219c5811de6525e5416c7d5d53bb656d3afdbc6c5af816e0802bcfa42dbdc1c3"
+checksum = "16a1cfa75cc186dd73d5818e510e042e40927bccc9c236b061cea97e1eb08029"
 dependencies = [
- "base64",
+ "base64 0.23.1",
  "bytes",
  "encoding_rs",
  "futures-core",
@@ -1377,7 +1383,7 @@ dependencies = [
 
 [[package]]
 name = "reqwest-drive"
-version = "0.13.4-alpha"
+version = "0.13.5-alpha"
 dependencies = [
  "async-trait",
  "bitcode",
@@ -1631,9 +1637,9 @@ checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
 
 [[package]]
 name = "simd-r-drive"
-version = "0.16.3-alpha"
+version = "0.17.1-alpha"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "763aa09219c810fe26c60f9591fc911de2e6359537d22d431d142b86f8201862"
+checksum = "5cfddef6fb90009bb7080bd38301e7cb71d73a60e223930846a2faf6399b6c8c"
 dependencies = [
  "async-trait",
  "clap",
@@ -1649,9 +1655,9 @@ dependencies = [
 
 [[package]]
 name = "simd-r-drive-entry-handle"
-version = "0.16.3-alpha"
+version = "0.17.1-alpha"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "91b54ec80fc0a705916b9931f2f1674dd44e1b0efdc10d1cc60dad6948792a77"
+checksum = "7a4d599cc44133f5bf2b63d7fc09adda946ec6d62be363a8e5db7440d6bacba4"
 dependencies = [
  "crc32fast",
  "memmap2",
@@ -2517,7 +2523,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "08db1edfb05d9b3c1542e521aea074442088292f00b5f28e435c714a98f85031"
 dependencies = [
  "assert-json-diff",
- "base64",
+ "base64 0.22.1",
  "deadpool",
  "futures",
  "http",
