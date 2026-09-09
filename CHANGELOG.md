@@ -16,3 +16,4 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/) and this 
   - `bytes` 1.11.1 -> 1.12.1 (#39)
   - `rand` 0.10.1 -> 0.10.2 (#40)
   - `http` 1.4.1 -> 1.4.2 (#41)
+  - `chacha20` 0.10.0 -> 0.10.2 (`cargo deny check`)
