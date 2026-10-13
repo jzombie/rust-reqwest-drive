@@ -199,9 +199,9 @@ checksum = "fc652a48c352aef3ea3aed32080501cf3ef6ed5da78602a020c991775b0aff04"
 
 [[package]]
 name = "cache-manager"
-version = "0.5.0"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "216b7b4ff753c73d33ffea0166bf3bf89b7ba16fb55e7bc7730818bab8ac8195"
+checksum = "3d16266b6585746ebb43da97987694bbaa4b32c2de02e6cadb9a22e4faf2fc14"
 dependencies = [
  "tempfile",
 ]
@@ -1637,9 +1637,9 @@ checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
 
 [[package]]
 name = "simd-r-drive"
-version = "0.17.1-alpha"
+version = "0.17.3-alpha"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5cfddef6fb90009bb7080bd38301e7cb71d73a60e223930846a2faf6399b6c8c"
+checksum = "197a51fdeb5c49d6d9715344e196822ded1f4317905b9c693671c1c9327914e3"
 dependencies = [
  "async-trait",
  "clap",
@@ -1655,9 +1655,9 @@ dependencies = [
 
 [[package]]
 name = "simd-r-drive-entry-handle"
-version = "0.17.1-alpha"
+version = "0.17.3-alpha"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7a4d599cc44133f5bf2b63d7fc09adda946ec6d62be363a8e5db7440d6bacba4"
+checksum = "87f943e9b40bfd7a2ff8fad2cb72e3377a1858d3a067b065a939a19a2fcee5a8"
 dependencies = [
  "crc32fast",
  "memmap2",
