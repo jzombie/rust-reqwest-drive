@@ -22,6 +22,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/) and this 
   - `rustls` 0.23.28 -> 0.23.45 (fixes RUSTSEC-2026-0285, `cargo deny check`)
   - `rustls-webpki` 0.103.13 -> 0.103.15 (`cargo deny check`)
   - `aws-lc-rs` 1.16.2 -> 1.18.2 / `aws-lc-sys` 0.39.0 -> 0.46.0 (`cargo deny check`)
+  - `quinn-proto` 0.11.16 -> 0.11.19 (fixes RUSTSEC-2026-0338, RUSTSEC-2026-0339, RUSTSEC-2026-0340, RUSTSEC-2026-0341, RUSTSEC-2026-0342, `cargo audit`)
+  - `quinn` 0.11.9 -> 0.11.12 (`cargo audit`)
+  - `anyhow` 1.0.97 -> 1.0.104 (fixes RUSTSEC-2026-0190, `cargo audit`)
+  - `memmap2` 0.9.10 -> 0.9.11 (fixes RUSTSEC-2026-0186, `cargo audit`)
 
 ## [0.13.5-alpha] - 2026-09-09
 
