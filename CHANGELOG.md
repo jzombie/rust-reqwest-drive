@@ -1,4 +1,5 @@
 # Changelog
+
 All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/) and this project adheres to
@@ -7,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/) and this 
 ## [0.13.5-alpha] - 2026-09-09
 
 ### Changed
+
 - Bump `reqwest` from 0.13.4 to 0.13.5.
 - Bump `simd-r-drive` (and `simd-r-drive-entry-handle`) from 0.16.3-alpha to 0.17.1-alpha.
 - Bump crate version from 0.13.4-alpha to 0.13.5-alpha to track upstream `reqwest`.
