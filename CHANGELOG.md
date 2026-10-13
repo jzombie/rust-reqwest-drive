@@ -19,6 +19,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/) and this 
   - `rand` 0.10.2 -> 0.10.3 (#46)
   - `xxhash-rust` 0.8.15 -> 0.8.19 (indirect, #48)
   - `windows-sys` 0.52.0 / 0.59.0 -> 0.61.2 (transitive)
+  - `rustls` 0.23.28 -> 0.23.45 (fixes RUSTSEC-2026-0285, `cargo deny check`)
+  - `rustls-webpki` 0.103.13 -> 0.103.15 (`cargo deny check`)
+  - `aws-lc-rs` 1.16.2 -> 1.18.2 / `aws-lc-sys` 0.39.0 -> 0.46.0 (`cargo deny check`)
 
 ## [0.13.5-alpha] - 2026-09-09
 
